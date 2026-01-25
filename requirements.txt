@@ -1,0 +1,9 @@
+# requirements.txt
+torch
+ultralytics   # YOLOv8
+rasterio
+geopandas
+shapely
+matplotlib
+folium
+opencv-python
