@@ -58,26 +58,6 @@ Data & Labeling Guidance
 - Annotations: label car instances, keep guidelines for occlusions and shadows; agree on a consistent class schema.
 - Metadata: maintain a manifest mapping image_id to footprint/transform to enable geo-export.
 
-Directory/Layout (recommended)
-
-cars/
-README.md
-data.yaml
-scripts/
-pipeline.py
-data/
-train/
-images/
-labels/
-val/
-images/
-labels/
-test/
-images/
-labels/
-
-.env (optional at repo root for environment/configuration)
-
 Tools and Tips
 
 - Use a tiling strategy for large scenes (e.g., 512–640 px tiles) to fit GPU memory and improve detection accuracy.
