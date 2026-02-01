@@ -21,12 +21,13 @@ Phases and Steps
 - Define classes (minimum: car; optional: truck, bus).
 - Annotate a representative subset of images; export to COCO or YOLO format.
 - Convert annotations to YOLO format (class_id, x_center, y_center, width, height) normalized to image size.
-- Organize data as:
-  data/
-  ├─ train/images/
-  ├─ train/labels/
-  ├─ val/images/
-  └─ val/labels/
+- Organize data under this module as:
+  cars/
+  └─ data/
+     ├─ train/images/
+     ├─ train/labels/
+     ├─ val/images/
+     └─ val/labels/
 
 3. Model Training (YOLOv8)
 
@@ -58,17 +59,24 @@ Data & Labeling Guidance
 - Metadata: maintain a manifest mapping image_id to footprint/transform to enable geo-export.
 
 Directory/Layout (recommended)
-data/
-train/
-images/
-labels/
-val/
-images/
-labels/
-test/
-images/
-labels/
-.env (optional for environment/configuration)
+
+cars/
+  README.md
+  data.yaml
+  scripts/
+    pipeline.py
+  data/
+    train/
+      images/
+      labels/
+    val/
+      images/
+      labels/
+    test/
+      images/
+      labels/
+
+.env (optional at repo root for environment/configuration)
 
 Tools and Tips
 
@@ -78,8 +86,8 @@ Tools and Tips
 
 Quick Start (illustrative commands)
 
-- Create data layout:
-  mkdir -p data/train/images data/train/labels data/val/images data/val/labels data/test/images data/test/labels
+- Create data layout (from repo root):
+  mkdir -p cars/data/train/images cars/data/train/labels cars/data/val/images cars/data/val/labels cars/data/test/images cars/data/test/labels
 - Train (example; adapt to your environment and path):
   # Assuming Ultralytics YOLOv8 CLI is installed
   yolo train data=data.yaml model=yolov8s.pt epochs=100 imgsz=640
