@@ -93,5 +93,3 @@ Notes
 
 - Replace placeholder scripts and paths with your actual data and tooling.
 - This plan is meant as a template; adjust according to data availability, compute, and project goals.
-
-If you want, I can tailor an exact project structure, scripts, and a runnable starter pipeline based on your data sources and environment.
