@@ -3,3 +3,13 @@ val: data/val/images
 test: data/test/images
 nc: 1
 names: ["car"]
+
+# WMTS configuration for data ingestion
+wmts:
+  service_name: PICT-CAALAM20-OQ74EOAkBw
+  url: https://svc.pictometry.com/Image/6D9E15C5-C6B4-4ACB-A244-4C44ECA33D90/wmts
+  layer: PICT-CAALAM20-OQ74EOAkBw
+  tile_matrix_set: EPSG:3857
+  tile_matrix: 2000
+  style: default
+  format: image/jpeg
