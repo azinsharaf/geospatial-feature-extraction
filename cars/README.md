@@ -24,10 +24,10 @@ Phases and Steps
 - Organize data under this module as:
   cars/
   └─ data/
-     ├─ train/images/
-     ├─ train/labels/
-     ├─ val/images/
-     └─ val/labels/
+  ├─ train/images/
+  ├─ train/labels/
+  ├─ val/images/
+  └─ val/labels/
 
 3. Model Training (YOLOv8)
 
@@ -61,20 +61,20 @@ Data & Labeling Guidance
 Directory/Layout (recommended)
 
 cars/
-  README.md
-  data.yaml
-  scripts/
-    pipeline.py
-  data/
-    train/
-      images/
-      labels/
-    val/
-      images/
-      labels/
-    test/
-      images/
-      labels/
+README.md
+data.yaml
+scripts/
+pipeline.py
+data/
+train/
+images/
+labels/
+val/
+images/
+labels/
+test/
+images/
+labels/
 
 .env (optional at repo root for environment/configuration)
 
