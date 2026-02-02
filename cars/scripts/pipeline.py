@@ -7,9 +7,10 @@ from a WMTS service using AOIs defined in GeoJSON (EPSG:3857).
 
 import argparse
 import csv
+import json
 import os
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 import geopandas as gpd
 import requests
@@ -374,7 +375,161 @@ def ingest_data():
 
 
 def convert_to_yolo_format():
-    print("Converting annotations to YOLO format... (placeholder)")
+    """Convert external annotations into YOLO bbox txt files for detection.
+
+    This implementation assumes that annotations have been exported in COCO
+    format (instance/object detection) to:
+
+    - ``cars/annotations/train_coco.json``
+    - ``cars/annotations/val_coco.json`` (optional, but recommended)
+
+    For each split, YOLO-style label files are written to:
+
+    - ``cars/data/<split>/labels/<image_stem>.txt``
+
+    Each line in a label file has the form::
+
+        class_id x_center y_center width height
+
+    where the coordinates are normalized to [0, 1] by image width/height.
+    Currently this pipeline assumes a single class ``car`` with class_id 0.
+    """
+
+    cars_dir = _cars_dir()
+    annotations_dir = cars_dir / "annotations"
+    if not annotations_dir.exists():
+        print(f"[prepare] No annotations directory found at {annotations_dir}.")
+        print("[prepare] Please export COCO annotations before running this step.")
+        return
+
+    def _process_split(split: str, coco_path: Path) -> None:
+        if not coco_path.exists():
+            print(f"[prepare] Skipping split '{split}': {coco_path} not found.")
+            return
+
+        print(f"[prepare] Processing split '{split}' from {coco_path}.")
+
+        with coco_path.open("r", encoding="utf-8") as f:
+            coco = json.load(f)
+
+        images = coco.get("images", [])
+        annotations = coco.get("annotations", [])
+        categories = coco.get("categories", [])
+
+        # Build category_id -> class_id map. For now we collapse everything
+        # into a single class_id 0 if the category name contains "car".
+        cat_id_to_class_id: Dict[int, int] = {}
+        for cat in categories:
+            cid = int(cat["id"])
+            name = str(cat.get("name", "")).lower()
+            if "car" in name:
+                cat_id_to_class_id[cid] = 0
+
+        if not cat_id_to_class_id:
+            print(
+                f"[prepare] No categories mapped to 'car' for split '{split}'. "
+                "Ensure your COCO categories include a 'car' class."
+            )
+            return
+
+        # Group annotations by image_id
+        anns_by_image: Dict[int, List[Dict]] = {}
+        for ann in annotations:
+            image_id = int(ann["image_id"])
+            anns_by_image.setdefault(image_id, []).append(ann)
+
+        img_dir = cars_dir / "data" / split / "images"
+        labels_dir = cars_dir / "data" / split / "labels"
+        labels_dir.mkdir(parents=True, exist_ok=True)
+
+        num_images_with_labels = 0
+        num_boxes = 0
+
+        for img in images:
+            image_id = int(img["id"])
+            file_name = str(img["file_name"])
+            width = float(img.get("width", 0))
+            height = float(img.get("height", 0))
+
+            if width <= 0 or height <= 0:
+                print(
+                    f"[prepare] Skipping image_id={image_id} with invalid size "
+                    f"(width={width}, height={height})."
+                )
+                continue
+
+            image_path = img_dir / file_name
+            if not image_path.exists():
+                # Some COCO exports include full paths; try matching by stem.
+                fallback = img_dir / Path(file_name).name
+                if fallback.exists():
+                    image_path = fallback
+                else:
+                    print(
+                        f"[prepare] Image file for COCO entry '{file_name}' "
+                        f"not found under {img_dir}; skipping."
+                    )
+                    continue
+
+            anns = anns_by_image.get(image_id, [])
+            if not anns:
+                # It's fine to have unlabeled images; create an empty label file.
+                label_path = labels_dir / (image_path.stem + ".txt")
+                label_path.write_text("", encoding="utf-8")
+                continue
+
+            yolo_lines: List[str] = []
+            for ann in anns:
+                cat_id_raw = ann.get("category_id")
+                if cat_id_raw is None:
+                    continue
+                try:
+                    cat_id = int(cat_id_raw)
+                except (TypeError, ValueError):
+                    continue
+
+                if cat_id not in cat_id_to_class_id:
+                    # Ignore non-car categories for now.
+                    continue
+
+                bbox = ann.get("bbox") or []
+                if len(bbox) != 4:
+                    continue
+
+                x, y, w, h = map(float, bbox)
+                if w <= 0 or h <= 0:
+                    continue
+
+                x_center = (x + w / 2.0) / width
+                y_center = (y + h / 2.0) / height
+                w_norm = w / width
+                h_norm = h / height
+
+                # Clamp to [0,1] just in case of small numeric drift.
+                x_center = max(0.0, min(1.0, x_center))
+                y_center = max(0.0, min(1.0, y_center))
+                w_norm = max(0.0, min(1.0, w_norm))
+                h_norm = max(0.0, min(1.0, h_norm))
+
+                class_id = cat_id_to_class_id[cat_id]
+                yolo_lines.append(
+                    f"{class_id} {x_center:.6f} {y_center:.6f} {w_norm:.6f} {h_norm:.6f}"
+                )
+
+            label_path = labels_dir / (image_path.stem + ".txt")
+            label_path.write_text("\n".join(yolo_lines) + ("\n" if yolo_lines else ""), encoding="utf-8")
+
+            if yolo_lines:
+                num_images_with_labels += 1
+                num_boxes += len(yolo_lines)
+
+        print(
+            f"[prepare] Finished split '{split}': "
+            f"{num_images_with_labels} images with labels, {num_boxes} boxes."
+        )
+
+    _process_split("train", annotations_dir / "train_coco.json")
+    _process_split("val", annotations_dir / "val_coco.json")
 
 
 def train_yolov8():
