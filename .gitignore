@@ -2,3 +2,5 @@ __pycache__
 *.py[codz]
 cars/data/manifest.csv
 cars/data/train/images
+cars/data/test/images
+cars/data/val/images
