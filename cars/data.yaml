@@ -7,9 +7,15 @@ names: ["car"]
 # WMTS configuration for data ingestion
 wmts:
   service_name: PICT-CAALAM23-lIoWT9vYRg
+  # Base WMTS endpoint (used for capabilities and KVP-style requests)
   url: https://svc.pictometry.com/Image/6D9E15C5-C6B4-4ACB-A244-4C44ECA33D90/wmts
   layer: PICT-CAALAM23-lIoWT9vYRg
-  tile_matrix_set: EPSG:3857
-  tile_matrix: 2000
+  # From <TileMatrixSet>GoogleMapsCompatible</TileMatrixSet>
+  tile_matrix_set: GoogleMapsCompatible
+  # TileMatrix identifier / zoom level (0-30). Adjust as needed.
+  tile_matrix: 20
   style: default
-  format: image/jpeg
+  format: image/png
+  # Optional REST-style resource template (preferred when available).
+  # Derived from the WMTS capabilities <ResourceURL> element.
+  resource_url_template: "https://svc.pictometry.com/Image/6D9E15C5-C6B4-4ACB-A244-4C44ECA33D90/wmts/PICT-CAALAM23-lIoWT9vYRg/{Style}/{TileMatrixSet}/{TileMatrix}/{TileCol}/{TileRow}.png"
