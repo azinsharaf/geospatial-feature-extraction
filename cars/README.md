@@ -16,6 +16,14 @@ This directory contains the high-level workflow to detect cars in satellite imag
 - Ensure data is organized with a stable naming convention and metadata.
 - Split data into train/validation/test sets.
 
+#### Data Ingestion (implementation details)
+
+- Imagery is pulled from an internal WMTS service configured in `cars/data.yaml` (see the `wmts` section).
+- AOIs are defined as polygons in EPSG:3857 in `cars/aoi.geojson` (or `cars/aoi.example.geojson` if you are just testing).
+- Run `python cars/scripts/pipeline.py ingest` to download tiles for each AOI feature and split (`train`/`val`/`test`).
+- Tiles are saved under `cars/data/<split>/images/`, and a manifest called `cars/data/manifest.csv` records per-tile metadata.
+- `cars/data/` is intended for local datasets (imagery and labels) and should not be committed to git.
+
 ### 2. Labeling & YOLO Formatting
 
 - Define classes (minimum: car; optional: truck, bus).
