@@ -206,3 +206,4 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 cars/data/manifest.csv
+cars/data/train/images
