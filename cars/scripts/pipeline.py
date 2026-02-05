@@ -517,7 +517,9 @@ def convert_to_yolo_format():
                 )
 
             label_path = labels_dir / (image_path.stem + ".txt")
-            label_path.write_text("\n".join(yolo_lines) + ("\n" if yolo_lines else ""), encoding="utf-8")
+            label_path.write_text(
+                "\n".join(yolo_lines) + ("\n" if yolo_lines else ""), encoding="utf-8"
+            )
 
             if yolo_lines:
                 num_images_with_labels += 1
