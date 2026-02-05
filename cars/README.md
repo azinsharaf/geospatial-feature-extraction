@@ -18,9 +18,10 @@ This directory contains the high-level workflow to detect cars in satellite imag
 
 #### Data Ingestion (implementation details)
 
-- Imagery is pulled from an internal WMTS service configured in `cars/data.yaml` (see the `wmts` section).
-- AOIs are defined as polygons in EPSG:3857 in `cars/aoi.geojson` (or `cars/aoi.example.geojson` if you are just testing).
-- Run `python cars/scripts/pipeline.py ingest` to download tiles for each AOI feature and split (`train`/`val`/`test`).
+- Imagery is pulled from a WMTS service configured in `cars/data.yaml` under the top-level `wmts` section (keys: `url`, `layer`, `tile_matrix_set`, `tile_matrix`, `style`, `format`).
+- AOIs are defined as polygons in `cars/aoi.geojson`. The pipeline expects EPSG:3857; if a different CRS is present, it is reprojected to EPSG:3857 on the fly.
+- Each AOI feature can optionally have a `split` property (`train`, `val`, or `test`); if missing or invalid, it defaults to `train`.
+- Run `python cars/scripts/pipeline.py ingest` to download tiles for each AOI feature and split.
 - Tiles are saved under `cars/data/<split>/images/`, and a manifest called `cars/data/manifest.csv` records per-tile metadata.
 - `cars/data/` is intended for local datasets (imagery and labels) and should not be committed to git.
 
