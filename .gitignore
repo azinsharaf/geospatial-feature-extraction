@@ -14,3 +14,4 @@ cars/data/train/labels.cache
 cars/annotations/train_coco.json
 cars/data/train/labels
 cars/annotations/val_coco.json
+cars/data/val/labels
