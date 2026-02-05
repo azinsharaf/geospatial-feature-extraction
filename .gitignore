@@ -4,3 +4,12 @@ cars/data/manifest.csv
 cars/data/train/images
 cars/data/test/images
 cars/data/val/images
+cars/yolo_data.yaml
+yolov8n.pt
+yolo26n.pt
+cars/runs/yolov8_cars
+runs/detect/cars/runs/yolov8_cars_infer
+cars/data/val/labels.cache
+cars/data/train/labels.cache
+cars/annotations/train_coco.json
+cars/data/train/labels
