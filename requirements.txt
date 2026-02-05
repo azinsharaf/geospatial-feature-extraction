@@ -1,6 +1,9 @@
-# requirements.txt
+--extra-index-url https://download.pytorch.org/whl/cu130
+
 torch
-ultralytics   # YOLOv8
+torchvision
+torchaudio
+ultralytics
 rasterio
 geopandas
 shapely
