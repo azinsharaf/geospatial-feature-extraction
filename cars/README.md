@@ -18,7 +18,7 @@ This directory contains the high-level workflow to detect cars in satellite imag
 
 #### Data Ingestion (implementation details)
 
-- Imagery is pulled from a WMTS service configured in `cars/data.yaml` under the top-level `wmts` section (keys: `url`, `layer`, `tile_matrix_set`, `tile_matrix`, `style`, `format`).
+- Imagery is pulled from a WMTS service configured in `cars/config.yaml` under the top-level `wmts` section (keys: `url`, `layer`, `tile_matrix_set`, `tile_matrix`, `style`, `format`).
 - AOIs are defined as polygons in `cars/aoi.geojson`. The pipeline expects EPSG:3857; if a different CRS is present, it is reprojected to EPSG:3857 on the fly.
 - Each AOI feature can optionally have a `split` property (`train`, `val`, or `test`); if missing or invalid, it defaults to `train`.
 - Run `python cars/scripts/pipeline.py ingest` to download tiles for each AOI feature and split.
@@ -90,7 +90,7 @@ mkdir -p cars/data/train/images cars/data/train/labels cars/data/val/images cars
 
 ```bash
 # Assuming Ultralytics YOLOv8 CLI is installed
-yolo train data=data.yaml model=yolov8s.pt epochs=100 imgsz=640
+yolo train data=cars/config.yaml model=yolov8s.pt epochs=100 imgsz=640
 ```
 
 - Inference (example):

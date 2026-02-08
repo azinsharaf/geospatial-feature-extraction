@@ -39,17 +39,17 @@ def _cars_dir() -> Path:
 
 
 def _load_wmts_config() -> Dict:
-    """Load WMTS configuration from cars/data.yaml.
+    """Load WMTS configuration from cars/config.yaml.
 
     The YAML file is expected to contain a top-level ``wmts`` section.
     """
 
     cars_dir = _cars_dir()
-    data_yaml_path = cars_dir / "data.yaml"
-    if not data_yaml_path.exists():
-        raise FileNotFoundError(f"Expected WMTS config at {data_yaml_path}")
+    config_path = cars_dir / "config.yaml"
+    if not config_path.exists():
+        raise FileNotFoundError(f"Expected WMTS config at {config_path}")
 
-    with data_yaml_path.open("r", encoding="utf-8") as f:
+    with config_path.open("r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
 
     wmts_cfg = cfg.get("wmts") or {}
@@ -63,7 +63,7 @@ def _load_wmts_config() -> Dict:
     ]
     missing = [k for k in required_keys if k not in wmts_cfg]
     if missing:
-        raise KeyError(f"Missing WMTS config keys in cars/data.yaml: {missing}")
+        raise KeyError(f"Missing WMTS config keys in cars/config.yaml: {missing}")
 
     return wmts_cfg
 
@@ -73,7 +73,7 @@ def _zoom_from_tile_matrix(tile_matrix_value) -> int:
 
     For this first implementation we assume that ``wmts.tile_matrix`` is a
     standard XYZ-style zoom between 0 and 30. If this is not the case for
-    your WMTS service, update ``cars/data.yaml`` accordingly.
+    your WMTS service, update ``cars/config.yaml`` accordingly.
     """
 
     try:
@@ -86,7 +86,7 @@ def _zoom_from_tile_matrix(tile_matrix_value) -> int:
     if not (0 <= z <= 30):
         raise ValueError(
             "wmts.tile_matrix is expected to be a zoom level between 0 and 30; "
-            f"got {tile_matrix_value!r}. Update cars/data.yaml to a reasonable zoom."
+            f"got {tile_matrix_value!r}. Update cars/config.yaml to a reasonable zoom."
         )
     return z
 
@@ -205,7 +205,7 @@ def _create_wmts_session() -> requests.Session:
 def ingest_data():
     """Download imagery tiles from WMTS into cars/data and write a manifest.
 
-    - Reads WMTS configuration from ``cars/data.yaml``.
+    - Reads WMTS configuration from ``cars/config.yaml``.
     - Reads AOIs from ``cars/aoi.geojson``
     - For each AOI (Polygon/MultiPolygon in EPSG:3857) and split
       (train/val/test), computes tile row/col ranges that cover its bounding
