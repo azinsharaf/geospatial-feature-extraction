@@ -15,3 +15,4 @@ cars/data/train/labels
 cars/annotations/val_coco.json
 cars/data/val/labels
 cars/runs/detect/cars/yolov8s_cars
+cars/yolo26n.pt

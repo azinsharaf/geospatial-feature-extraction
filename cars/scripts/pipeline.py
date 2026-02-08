@@ -9,6 +9,7 @@ import argparse
 import csv
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -587,8 +588,27 @@ def train_yolov8():
         print(
             "[train] 'yolo' CLI not found. Install Ultralytics with 'pip install ultralytics' and ensure 'yolo' is on your PATH."
         )
+        return
     except subprocess.CalledProcessError as exc:
         print(f"[train] Training failed with exit code {exc.returncode}.")
+        return
+
+    # On successful training, promote the best checkpoint into cars/models/.
+    run_dir = cars_dir / "runs" / "detect" / project / name
+    best_src = run_dir / "weights" / "best.pt"
+    if not best_src.exists():
+        print(f"[train] Expected best checkpoint not found at {best_src}.")
+        return
+
+    models_dir = cars_dir / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    best_dst = models_dir / f"{name}_best.pt"
+
+    try:
+        shutil.copy2(best_src, best_dst)
+        print(f"[train] Copied best checkpoint to {best_dst}.")
+    except OSError as exc:
+        print(f"[train] Failed to copy best checkpoint to {best_dst}: {exc}.")
 
 
 def run_inference():
