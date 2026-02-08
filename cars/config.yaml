@@ -4,6 +4,17 @@ test: data/test/images
 nc: 1
 names: ["car"]
 
+# Training configuration for pipeline.py (used by train_yolov8)
+training:
+  model: yolov8s.pt # YOLOv8 model variant
+  epochs: 100
+  imgsz: 640
+  batch: 16
+  device: 0 # or "cpu", "0,1", etc.
+  workers: 8
+  project: cars
+  name: yolov8s_cars
+
 # WMTS configuration for data ingestion
 wmts:
   service_name: PICT-CAALAM23-lIoWT9vYRg

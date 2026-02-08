@@ -9,6 +9,7 @@ import argparse
 import csv
 import json
 import os
+import subprocess
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -535,7 +536,59 @@ def convert_to_yolo_format():
 
 
 def train_yolov8():
-    print("Training YOLOv8 model... (placeholder)")
+    """Train a YOLOv8 model using cars/config.yaml.
+
+    This function reads optional ``training`` settings from the same YAML used
+    for the dataset definition and WMTS config and forwards them to the
+    Ultralytics ``yolo`` CLI.
+    """
+
+    cars_dir = _cars_dir()
+    config_path = cars_dir / "config.yaml"
+
+    if not config_path.exists():
+        print(f"[train] Dataset/config file not found at {config_path}.")
+        return
+
+    with config_path.open("r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+
+    train_cfg = cfg.get("training") or {}
+
+    model = str(train_cfg.get("model", "yolov8s.pt"))
+    epochs = str(train_cfg.get("epochs", 100))
+    imgsz = str(train_cfg.get("imgsz", 640))
+    batch = str(train_cfg.get("batch", 16))
+    device = str(train_cfg.get("device", 0))
+    workers = str(train_cfg.get("workers", 8))
+    project = str(train_cfg.get("project", "runs/train"))
+    name = str(train_cfg.get("name", "cars"))
+
+    cmd = [
+        "yolo",
+        "train",
+        f"data={config_path}",
+        f"model={model}",
+        f"epochs={epochs}",
+        f"imgsz={imgsz}",
+        f"batch={batch}",
+        f"device={device}",
+        f"workers={workers}",
+        f"project={project}",
+        f"name={name}",
+    ]
+
+    print("[train] Running:", " ".join(cmd))
+    try:
+        # Run YOLO from the cars/ directory so that all runs are written under
+        # cars/runs/... instead of the repository root.
+        subprocess.run(cmd, check=True, cwd=str(cars_dir))
+    except FileNotFoundError:
+        print(
+            "[train] 'yolo' CLI not found. Install Ultralytics with 'pip install ultralytics' and ensure 'yolo' is on your PATH."
+        )
+    except subprocess.CalledProcessError as exc:
+        print(f"[train] Training failed with exit code {exc.returncode}.")
 
 
 def run_inference():
