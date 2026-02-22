@@ -9,6 +9,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -842,14 +843,28 @@ def export_geojson():
             reader = csv.DictReader(mf)
             for row in reader:
                 rel_path = row.get("rel_path") or ""
-                name_key = Path(rel_path).name
-                if not name_key:
+                stem_key = Path(rel_path).stem
+                if not stem_key:
                     continue
-                manifest_index[name_key] = row
+                manifest_index[stem_key] = row
 
     source_path = Path(source)
     if not source_path.is_absolute():
         source_path = cars_dir / source_path
+
+    tile_id_pattern = re.compile(r"_z(?P<z>\d+)_r(?P<row>\d+)_c(?P<col>\d+)$")
+
+    def _bounds_from_tile_id(tile_id: str):
+        match = tile_id_pattern.search(tile_id)
+        if not match:
+            return None
+        try:
+            z = int(match.group("z"))
+            row = int(match.group("row"))
+            col = int(match.group("col"))
+        except (TypeError, ValueError):
+            return None
+        return _tile_bounds(z, row, col)
 
     def _find_image_path(stem: str, fallback_name: str) -> Path:
         if fallback_name:
@@ -895,6 +910,9 @@ def export_geojson():
                     Tuple[float, float, float, float],
                     (xmin_val, ymin_val, xmax_val, ymax_val),
                 )
+
+        if bounds is None:
+            bounds = _bounds_from_tile_id(stem)
 
         if bounds is None:
             missing_bounds += 1
