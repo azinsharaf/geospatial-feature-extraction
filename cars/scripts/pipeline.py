@@ -12,7 +12,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, cast
 
 import geopandas as gpd
 import requests
@@ -695,8 +695,301 @@ def run_inference():
         print(f"[infer] Inference failed with exit code {exc.returncode}.")
 
 
+def run_validation():
+    """Run YOLOv8 validation and persist metrics to disk.
+
+    Uses the Ultralytics Python API so that metrics are saved alongside the
+    standard validation plots.
+    """
+
+    try:
+        import importlib
+
+        ultralytics_module = importlib.import_module("ultralytics")
+    except ImportError:
+        print(
+            "[val] Ultralytics is not installed. Install with 'pip install ultralytics'."
+        )
+        return
+
+    YOLO = getattr(ultralytics_module, "YOLO", None)
+    if YOLO is None:
+        print("[val] Ultralytics YOLO API not found.")
+        return
+
+    cars_dir = _cars_dir()
+    config_path = cars_dir / "config.yaml"
+
+    if not config_path.exists():
+        print(f"[val] Dataset/config file not found at {config_path}.")
+        return
+
+    with config_path.open("r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+
+    train_cfg = cfg.get("training") or {}
+    val_cfg = cfg.get("validation") or {}
+
+    model = val_cfg.get("model")
+    if not model:
+        model = f"models/{train_cfg.get('name', 'cars')}_best.pt"
+
+    imgsz = int(val_cfg.get("imgsz", train_cfg.get("imgsz", 640)))
+    batch = int(val_cfg.get("batch", train_cfg.get("batch", 16)))
+    device = str(val_cfg.get("device", train_cfg.get("device", 0)))
+    project = str(val_cfg.get("project", "runs/detect"))
+    name = str(val_cfg.get("name", "val"))
+
+    model_path = cars_dir / model
+    if not model_path.exists():
+        print(f"[val] Model checkpoint not found at {model_path}.")
+        return
+
+    project_path = Path(project)
+    if not project_path.is_absolute():
+        project_path = cars_dir / project_path
+
+    print(
+        "[val] Running validation with model",
+        model,
+        "->",
+        project_path / name,
+    )
+
+    try:
+        yolo_model = YOLO(str(model_path))
+        results = yolo_model.val(
+            data=str(config_path),
+            imgsz=imgsz,
+            batch=batch,
+            device=device,
+            project=str(project_path),
+            name=name,
+        )
+    except Exception as exc:
+        print(f"[val] Validation failed: {exc}")
+        return
+
+    save_dir = Path(getattr(results, "save_dir", project_path / name))
+    metrics = getattr(results, "results_dict", {}) or {}
+
+    if not metrics:
+        print("[val] No metrics dictionary returned to save.")
+        return
+
+    metrics_path = save_dir / "metrics.json"
+    metrics_csv_path = save_dir / "metrics.csv"
+
+    try:
+        metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+        with metrics_csv_path.open("w", newline="", encoding="utf-8") as mf:
+            writer = csv.writer(mf)
+            writer.writerow(["metric", "value"])
+            for key, value in metrics.items():
+                writer.writerow([key, value])
+        print(f"[val] Saved metrics to {metrics_path} and {metrics_csv_path}.")
+    except OSError as exc:
+        print(f"[val] Failed to write metrics files: {exc}.")
+
+
 def export_geojson():
-    print("Exporting detections to GeoJSON... (placeholder)")
+    """Export YOLO detections to GeoJSON in EPSG:3857."""
+
+    try:
+        import cv2
+    except ImportError:
+        print("[export] OpenCV not available. Install opencv-python.")
+        return
+
+    cars_dir = _cars_dir()
+    config_path = cars_dir / "config.yaml"
+
+    if not config_path.exists():
+        print(f"[export] Dataset/config file not found at {config_path}.")
+        return
+
+    with config_path.open("r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+
+    infer_cfg = cfg.get("inference") or {}
+    export_cfg = cfg.get("export") or {}
+
+    project = str(export_cfg.get("project", infer_cfg.get("project", "cars")))
+    name = str(export_cfg.get("name", infer_cfg.get("name", "yolov8s_cars_infer")))
+    source = str(export_cfg.get("source", infer_cfg.get("source", "data/test/images")))
+    output = str(export_cfg.get("output", "exports/detections.geojson"))
+
+    project_path = Path(project)
+    if not project_path.is_absolute():
+        run_dir = cars_dir / "runs" / "detect" / project_path / name
+    else:
+        run_dir = project_path / name
+
+    labels_dir = run_dir / "labels"
+    if not labels_dir.exists():
+        print(f"[export] Labels directory not found at {labels_dir}.")
+        return
+
+    output_path = Path(output)
+    if not output_path.is_absolute():
+        output_path = cars_dir / output_path
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    manifest_path = cars_dir / "data" / "manifest.csv"
+    manifest_index: Dict[str, Dict[str, str]] = {}
+    if manifest_path.exists():
+        with manifest_path.open("r", newline="", encoding="utf-8") as mf:
+            reader = csv.DictReader(mf)
+            for row in reader:
+                rel_path = row.get("rel_path") or ""
+                name_key = Path(rel_path).name
+                if not name_key:
+                    continue
+                manifest_index[name_key] = row
+
+    source_path = Path(source)
+    if not source_path.is_absolute():
+        source_path = cars_dir / source_path
+
+    def _find_image_path(stem: str, fallback_name: str) -> Path:
+        if fallback_name:
+            candidate = source_path / fallback_name
+            if candidate.exists():
+                return candidate
+        for ext in (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"):
+            candidate = source_path / f"{stem}{ext}"
+            if candidate.exists():
+                return candidate
+        return Path()
+
+    def _float_or_none(value):
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    features: List[Dict] = []
+    missing_bounds = 0
+    missing_images = 0
+
+    for label_path in labels_dir.glob("*.txt"):
+        stem = label_path.stem
+        manifest_row = manifest_index.get(stem)
+        image_file = ""
+        image_id = stem
+        bounds = None
+        split = None
+
+        if manifest_row:
+            image_file = manifest_row.get("rel_path", "")
+            image_id = manifest_row.get("image_id", stem)
+            split = manifest_row.get("split")
+            xmin_val = _float_or_none(manifest_row.get("xmin"))
+            ymin_val = _float_or_none(manifest_row.get("ymin"))
+            xmax_val = _float_or_none(manifest_row.get("xmax"))
+            ymax_val = _float_or_none(manifest_row.get("ymax"))
+            if None not in (xmin_val, ymin_val, xmax_val, ymax_val):
+                bounds = cast(
+                    Tuple[float, float, float, float],
+                    (xmin_val, ymin_val, xmax_val, ymax_val),
+                )
+
+        if bounds is None:
+            missing_bounds += 1
+            continue
+
+        image_path = _find_image_path(stem, Path(image_file).name)
+        if not image_path.exists() and image_file:
+            image_path = cars_dir / image_file
+
+        if not image_path.exists():
+            missing_images += 1
+            continue
+
+        image = cv2.imread(str(image_path))
+        if image is None:
+            missing_images += 1
+            continue
+
+        height, width = image.shape[:2]
+        if width == 0 or height == 0:
+            missing_images += 1
+            continue
+
+        xmin, ymin, xmax, ymax = bounds
+        x_span = xmax - xmin
+        y_span = ymax - ymin
+
+        with label_path.open("r", encoding="utf-8") as lf:
+            for line in lf:
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split()
+                if len(parts) not in {5, 6}:
+                    continue
+                class_id = int(float(parts[0]))
+                x_center = float(parts[1]) * width
+                y_center = float(parts[2]) * height
+                box_w = float(parts[3]) * width
+                box_h = float(parts[4]) * height
+                conf = float(parts[5]) if len(parts) == 6 else None
+
+                xmin_px = x_center - box_w / 2.0
+                xmax_px = x_center + box_w / 2.0
+                ymin_px = y_center - box_h / 2.0
+                ymax_px = y_center + box_h / 2.0
+
+                xmin_world = xmin + (xmin_px / width) * x_span
+                xmax_world = xmin + (xmax_px / width) * x_span
+                ymax_world = ymax - (ymin_px / height) * y_span
+                ymin_world = ymax - (ymax_px / height) * y_span
+
+                coords = [
+                    [xmin_world, ymin_world],
+                    [xmax_world, ymin_world],
+                    [xmax_world, ymax_world],
+                    [xmin_world, ymax_world],
+                    [xmin_world, ymin_world],
+                ]
+
+                props = {
+                    "image_id": image_id,
+                    "image_file": image_file or image_path.name,
+                    "class_id": class_id,
+                }
+                if split:
+                    props["split"] = split
+                if conf is not None:
+                    props["confidence"] = conf
+
+                features.append(
+                    {
+                        "type": "Feature",
+                        "geometry": {"type": "Polygon", "coordinates": [coords]},
+                        "properties": props,
+                    }
+                )
+
+    geojson = {
+        "type": "FeatureCollection",
+        "name": "yolo_detections",
+        "crs": {"type": "name", "properties": {"name": "EPSG:3857"}},
+        "features": features,
+    }
+
+    try:
+        output_path.write_text(json.dumps(geojson, indent=2), encoding="utf-8")
+    except OSError as exc:
+        print(f"[export] Failed to write GeoJSON to {output_path}: {exc}.")
+        return
+
+    print(
+        f"[export] Wrote {len(features)} detections to {output_path}. "
+        f"Missing bounds: {missing_bounds}, missing images: {missing_images}."
+    )
 
 
 def visualize_map():
@@ -709,7 +1002,16 @@ def main():
     )
     ap.add_argument(
         "step",
-        choices=["ingest", "prepare", "train", "infer", "export", "visualize", "all"],
+        choices=[
+            "ingest",
+            "prepare",
+            "train",
+            "val",
+            "infer",
+            "export",
+            "visualize",
+            "all",
+        ],
         help="Step to execute",
     )
     args = ap.parse_args()
@@ -719,6 +1021,8 @@ def main():
         convert_to_yolo_format()
     elif args.step == "train":
         train_yolov8()
+    elif args.step == "val":
+        run_validation()
     elif args.step == "infer":
         run_inference()
     elif args.step == "export":
