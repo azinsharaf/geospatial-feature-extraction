@@ -7,7 +7,7 @@ names: ["car"]
 # Training configuration for pipeline.py (used by train_yolov8)
 training:
   model: models/yolov8s.pt # YOLOv8 model variant
-  epochs: 200
+  epochs: 100
   imgsz: 640
   batch: 16
   device: 0 # or "cpu", "0,1", etc.
