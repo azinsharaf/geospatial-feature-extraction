@@ -25,7 +25,7 @@ inference:
   iou: 0.45
   device: 0 # or "cpu", "0,1", etc.
   project: cars
-  name: yolov8s_cars_infer_184epoch
+  name: yolov8s_cars_infer_100epoch_conf025
 
 # WMTS configuration for data ingestion
 wmts:
