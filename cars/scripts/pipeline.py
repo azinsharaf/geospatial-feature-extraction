@@ -593,8 +593,22 @@ def train_yolov8():
         print(f"[train] Training failed with exit code {exc.returncode}.")
         return
 
-    # On successful training, promote the best checkpoint into cars/models/.
-    run_dir = cars_dir / "runs" / "detect" / project / name
+    # On successful training, promote the best checkpoint from the most recent
+    # matching run directory into cars/models/.
+    runs_root = cars_dir / "runs" / "detect" / project
+    candidate_dirs: List[Path] = []
+    if runs_root.exists():
+        for d in runs_root.iterdir():
+            if d.is_dir() and (d.name == name or d.name.startswith(f"{name}")):
+                candidate_dirs.append(d)
+
+    if not candidate_dirs:
+        # Fallback to the original expected layout in case the above lookup
+        # fails for any reason.
+        candidate_dirs = [cars_dir / "runs" / "detect" / project / name]
+
+    # Pick the most recently modified candidate directory.
+    run_dir = max(candidate_dirs, key=lambda p: p.stat().st_mtime)
     best_src = run_dir / "weights" / "best.pt"
     if not best_src.exists():
         print(f"[train] Expected best checkpoint not found at {best_src}.")
@@ -606,13 +620,79 @@ def train_yolov8():
 
     try:
         shutil.copy2(best_src, best_dst)
-        print(f"[train] Copied best checkpoint to {best_dst}.")
+        print(f"[train] Copied best checkpoint from {best_src} to {best_dst}.")
     except OSError as exc:
         print(f"[train] Failed to copy best checkpoint to {best_dst}: {exc}.")
 
 
 def run_inference():
-    print("Running inference... (placeholder)")
+    """Run YOLOv8 inference using the trained model.
+
+    This function reads an ``inference`` section from cars/config.yaml and
+    forwards the settings to the Ultralytics ``yolo predict`` CLI. By default
+    it uses the best checkpoint promoted to ``cars/models`` by ``train_yolov8``.
+    """
+
+    cars_dir = _cars_dir()
+    config_path = cars_dir / "config.yaml"
+
+    if not config_path.exists():
+        print(f"[infer] Dataset/config file not found at {config_path}.")
+        return
+
+    with config_path.open("r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+
+    infer_cfg = cfg.get("inference") or {}
+    train_cfg = cfg.get("training") or {}
+
+    # Prefer an explicit inference model; fall back to the training name-based
+    # best checkpoint, then finally to the training base model.
+    model = infer_cfg.get("model")
+    if not model:
+        fallback_best = f"models/{train_cfg.get('name', 'cars')}_best.pt"
+        model = infer_cfg.get("model", fallback_best)
+
+    model = str(model)
+    source = str(infer_cfg.get("source", "data/test/images"))
+    imgsz = str(infer_cfg.get("imgsz", train_cfg.get("imgsz", 640)))
+    conf = str(infer_cfg.get("conf", 0.25))
+    iou = str(infer_cfg.get("iou", 0.45))
+    device = str(infer_cfg.get("device", train_cfg.get("device", 0)))
+    project = str(infer_cfg.get("project", "cars"))
+    name = str(infer_cfg.get("name", "yolov8s_cars_infer"))
+
+    model_path = cars_dir / model
+    if not model_path.exists():
+        print(f"[infer] Model checkpoint not found at {model_path}.")
+        return
+
+    cmd = [
+        "yolo",
+        "predict",
+        f"model={model}",
+        f"source={source}",
+        f"imgsz={imgsz}",
+        f"conf={conf}",
+        f"iou={iou}",
+        f"device={device}",
+        f"project={project}",
+        f"name={name}",
+        "save_txt=True",
+        "save_conf=True",
+    ]
+
+    print("[infer] Running:", " ".join(cmd))
+    try:
+        # Run YOLO from the cars/ directory so that all runs are written under
+        # cars/runs/... instead of the repository root.
+        subprocess.run(cmd, check=True, cwd=str(cars_dir))
+    except FileNotFoundError:
+        print(
+            "[infer] 'yolo' CLI not found. Install Ultralytics with 'pip install ultralytics' and ensure 'yolo' is on your PATH."
+        )
+    except subprocess.CalledProcessError as exc:
+        print(f"[infer] Inference failed with exit code {exc.returncode}.")
 
 
 def export_geojson():

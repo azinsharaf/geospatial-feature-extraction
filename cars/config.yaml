@@ -7,13 +7,25 @@ names: ["car"]
 # Training configuration for pipeline.py (used by train_yolov8)
 training:
   model: models/yolov8s.pt # YOLOv8 model variant
-  epochs: 100
+  epochs: 200
   imgsz: 640
   batch: 16
   device: 0 # or "cpu", "0,1", etc.
   workers: 8
   project: cars
   name: yolov8s_cars
+
+# Inference configuration for pipeline.py (used by run_inference)
+inference:
+  # Default to the best checkpoint produced by training
+  model: models/yolov8s_cars_best.pt
+  source: data/test/images
+  imgsz: 640
+  conf: 0.25
+  iou: 0.45
+  device: 0 # or "cpu", "0,1", etc.
+  project: cars
+  name: yolov8s_cars_infer_184epoch
 
 # WMTS configuration for data ingestion
 wmts:
