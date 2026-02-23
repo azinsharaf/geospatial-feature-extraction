@@ -5,3 +5,5 @@ End-to-end pipelines for detecting objects in satellite and aerial imagery and e
 ## Cars
 
 See the Cars pipeline documentation: [cars/README.md](cars/README.md)
+
+![Car detections (GIS overlay)](docs/images/car_detection.png)
