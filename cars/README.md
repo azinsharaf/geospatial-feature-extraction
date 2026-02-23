@@ -32,7 +32,8 @@ Notes:
 - `cars/scripts/pipeline.py`: CLI pipeline runner
 - `cars/data/aoi_runs/<run_id>/...`: generated imagery + per-run manifest (ignored by git)
 - `cars/runs/`: Ultralytics outputs (ignored by git)
-- `cars/exports/`: GeoJSON exports (ignored by git)
+- `cars/exports/`: GeoJSON exports (GeoJSON files are committed; other artifacts are ignored)
+- `cars/models/yolov8s_cars_best.pt`: final trained model checkpoint (committed)
 
 ## AOI GeoJSON Schema
 
@@ -129,6 +130,10 @@ python cars/scripts/pipeline.py train
 On success, the best checkpoint is promoted into:
 
 - `cars/models/<training.name>_best.pt`
+
+This repo is set up to commit the final checkpoint at:
+
+- `cars/models/yolov8s_cars_best.pt`
 
 ### 4) Validate (optional)
 
