@@ -1,0 +1,10 @@
+{
+  "type" : "FeatureCollection",
+  "crs" : {
+    "type" : "name",
+    "properties" : {
+      "name" : "EPSG:3857"
+    }
+  },
+  "features" : [{"type":"Feature","id":1,"geometry":{"type":"Polygon","coordinates":[[[-13609185.140000001,4550609.5],[-13608185.140000001,4550609.5],[-13608185.140000001,4551609.5],[-13609185.140000001,4551609.5],[-13609185.140000001,4550609.5]]]},"properties":{"OBJECTID":1,"site_id":"alameda_02222026","split":"train","description":"REPLACE this polygon with your project AOI; coordinates are EPSG:3857 (Web Mercator meters).","Shape_Length":4000,"Shape_Area":1000000}}]
+}

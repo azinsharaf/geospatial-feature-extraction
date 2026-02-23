@@ -1,0 +1,36 @@
+{
+  "type": "FeatureCollection",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "EPSG:3857"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "id": 2,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-13607995.242699999, 4551615.1349999979],
+            [-13607995.242699999, 4550599.5042999983],
+            [-13606517.380100001, 4550599.5042999983],
+            [-13606517.380100001, 4551615.1349999979],
+            [-13607995.242699999, 4551615.1349999979]
+          ]
+        ]
+      },
+      "properties": {
+        "OBJECTID": 2,
+        "site_id": "oakland_02222026",
+        "split": "test",
+        "description": "REPLACE this polygon with your project AOI; coordinates are EPSG:3857 (Web Mercator meters).",
+        "Shape_Length": 4986.986599996686,
+        "Shape_Area": 1500962.6269399663
+      }
+    }
+  ]
+}
+
