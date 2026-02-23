@@ -240,19 +240,37 @@ def ingest_data(run_id: Optional[str] = None, aoi_path: Optional[str] = None):
     zoom = _zoom_from_tile_matrix(wmts_cfg["tile_matrix"])
 
     # AOI file: require explicit --aoi.
-    # Resolve relative paths against cars/, and if that doesn't exist, try
-    # cars/aois/<aoi> for convenience.
-    aoi_path_obj = Path(aoi_path)
-    if not aoi_path_obj.is_absolute():
-        direct_candidate = cars_dir / aoi_path_obj
-        if direct_candidate.exists():
-            aoi_path_obj = direct_candidate
-        else:
-            aoi_path_obj = cars_dir / "aois" / aoi_path_obj
+    # Support common invocation patterns:
+    # - absolute path
+    # - relative to current working directory (e.g. ./cars/aois/foo.geojson)
+    # - relative to cars/ (e.g. aois/foo.geojson)
+    # - bare filename stored in cars/aois (e.g. foo.geojson)
+    aoi_path_obj = Path(aoi_path).expanduser()
+    candidates: List[Path]
+    if aoi_path_obj.is_absolute():
+        candidates = [aoi_path_obj]
+    else:
+        candidates = [
+            Path.cwd() / aoi_path_obj,
+            cars_dir / aoi_path_obj,
+            cars_dir / "aois" / aoi_path_obj,
+            cars_dir / "aois" / aoi_path_obj.name,
+        ]
 
-    if not aoi_path_obj.exists():
-        print(f"[ingest] AOI file not found at {aoi_path_obj}.")
+    resolved_aoi: Optional[Path] = None
+    for candidate in candidates:
+        if candidate.exists():
+            resolved_aoi = candidate
+            break
+
+    if resolved_aoi is None:
+        print(
+            "[ingest] AOI file not found. Tried: "
+            + ", ".join(str(p) for p in candidates)
+        )
         return
+
+    aoi_path_obj = resolved_aoi
 
     print(f"[ingest] Using AOI at {aoi_path_obj}")
 
