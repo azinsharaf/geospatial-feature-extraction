@@ -205,7 +205,7 @@ def _create_wmts_session() -> requests.Session:
     return session
 
 
-def ingest_data(run_id: Optional[str] = None):
+def ingest_data(run_id: Optional[str] = None, aoi_path: Optional[str] = None):
     """Download imagery tiles from WMTS and write a manifest.
 
     If ``run_id`` is provided, tiles and the manifest are written under:
@@ -219,11 +219,16 @@ def ingest_data(run_id: Optional[str] = None):
     - ``cars/data/manifest.csv``
     """
 
+    if not run_id:
+        print("[ingest] Missing --run-id; refusing to run ingest.")
+        return
+
+    if not aoi_path:
+        print("[ingest] Missing --aoi; refusing to run ingest.")
+        return
+
     cars_dir = _cars_dir()
-    if run_id:
-        data_dir = cars_dir / "data" / "aoi_runs" / run_id
-    else:
-        data_dir = cars_dir / "data"
+    data_dir = cars_dir / "data" / "aoi_runs" / run_id
     data_dir.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -234,16 +239,19 @@ def ingest_data(run_id: Optional[str] = None):
 
     zoom = _zoom_from_tile_matrix(wmts_cfg["tile_matrix"])
 
-    # AOI file: prefer user-provided aoi.geojson, fall back to example.
-    aoi_path = cars_dir / "aoi.geojson"
-    if not aoi_path.exists():
-        aoi_path = cars_dir / "aoi.geojson"
-        print(f"[ingest] Using example AOI at {aoi_path}")
-    else:
-        print(f"[ingest] Using AOI at {aoi_path}")
+    # AOI file: require explicit --aoi.
+    aoi_path_obj = Path(aoi_path)
+    if not aoi_path_obj.is_absolute():
+        aoi_path_obj = cars_dir / aoi_path_obj
+
+    if not aoi_path_obj.exists():
+        print(f"[ingest] AOI file not found at {aoi_path_obj}.")
+        return
+
+    print(f"[ingest] Using AOI at {aoi_path_obj}")
 
     try:
-        aoi_gdf = gpd.read_file(aoi_path)
+        aoi_gdf = gpd.read_file(aoi_path_obj)
     except Exception as exc:  # pragma: no cover - simple CLI feedback
         print(f"[ingest] Failed to read AOI GeoJSON: {exc}")
         return
@@ -630,7 +638,14 @@ def train_yolov8():
         print(f"[train] Failed to copy best checkpoint to {best_dst}: {exc}.")
 
 
-def run_inference():
+def run_inference(
+    *,
+    run_id: Optional[str] = None,
+    split: str = "test",
+    source: Optional[str] = None,
+    project: Optional[str] = None,
+    name: Optional[str] = None,
+):
     """Run YOLOv8 inference using the trained model.
 
     This function reads an ``inference`` section from cars/config.yaml and
@@ -659,13 +674,20 @@ def run_inference():
         model = infer_cfg.get("model", fallback_best)
 
     model = str(model)
-    source = str(infer_cfg.get("source", "data/test/images"))
+    if run_id and source is None:
+        source = f"data/aoi_runs/{run_id}/{split}/images"
+    source = str(source if source is not None else infer_cfg.get("source", "data/test/images"))
     imgsz = str(infer_cfg.get("imgsz", train_cfg.get("imgsz", 640)))
     conf = str(infer_cfg.get("conf", 0.25))
     iou = str(infer_cfg.get("iou", 0.45))
     device = str(infer_cfg.get("device", train_cfg.get("device", 0)))
-    project = str(infer_cfg.get("project", "cars"))
-    name = str(infer_cfg.get("name", "yolov8s_cars_infer"))
+    if run_id and project is None:
+        project = "aoi_tests"
+    project = str(project if project is not None else infer_cfg.get("project", "cars"))
+
+    if run_id and name is None:
+        name = run_id
+    name = str(name if name is not None else infer_cfg.get("name", "yolov8s_cars_infer"))
 
     model_path = cars_dir / model
     if not model_path.exists():
@@ -797,7 +819,15 @@ def run_validation():
         print(f"[val] Failed to write metrics files: {exc}.")
 
 
-def export_geojson():
+def export_geojson(
+    *,
+    run_id: Optional[str] = None,
+    source_split: str = "test",
+    source: Optional[str] = None,
+    project: Optional[str] = None,
+    name: Optional[str] = None,
+    output: Optional[str] = None,
+):
     """Export YOLO detections to GeoJSON in EPSG:3857."""
 
     try:
@@ -819,10 +849,21 @@ def export_geojson():
     infer_cfg = cfg.get("inference") or {}
     export_cfg = cfg.get("export") or {}
 
-    project = str(export_cfg.get("project", infer_cfg.get("project", "cars")))
-    name = str(export_cfg.get("name", infer_cfg.get("name", "yolov8s_cars_infer")))
-    source = str(export_cfg.get("source", infer_cfg.get("source", "data/test/images")))
-    output = str(export_cfg.get("output", "exports/detections.geojson"))
+    if run_id and project is None:
+        project = "aoi_tests"
+    project = str(project if project is not None else export_cfg.get("project", infer_cfg.get("project", "cars")))
+
+    if run_id and name is None:
+        name = run_id
+    name = str(name if name is not None else export_cfg.get("name", infer_cfg.get("name", "yolov8s_cars_infer")))
+
+    if run_id and source is None:
+        source = f"data/aoi_runs/{run_id}/{source_split}/images"
+    source = str(source if source is not None else export_cfg.get("source", infer_cfg.get("source", "data/test/images")))
+
+    if run_id and output is None:
+        output = f"exports/{run_id}.geojson"
+    output = str(output if output is not None else export_cfg.get("output", "exports/detections.geojson"))
 
     project_path = Path(project)
     if not project_path.is_absolute():
@@ -899,12 +940,12 @@ def export_geojson():
         image_file = ""
         image_id = stem
         bounds = None
-        split = None
+        image_split = None
 
         if manifest_row:
             image_file = manifest_row.get("rel_path", "")
             image_id = manifest_row.get("image_id", stem)
-            split = manifest_row.get("split")
+            image_split = manifest_row.get("split")
             xmin_val = _float_or_none(manifest_row.get("xmin"))
             ymin_val = _float_or_none(manifest_row.get("ymin"))
             xmax_val = _float_or_none(manifest_row.get("xmax"))
@@ -982,8 +1023,8 @@ def export_geojson():
                     "image_file": image_file or image_path.name,
                     "class_id": class_id,
                 }
-                if split:
-                    props["split"] = split
+                if image_split:
+                    props["split"] = image_split
                 if conf is not None:
                     props["confidence"] = conf
 
@@ -1044,9 +1085,63 @@ def main():
             "cars/data/aoi_runs/<run-id>/ instead of cars/data/."
         ),
     )
+
+    ap.add_argument(
+        "--aoi",
+        default=None,
+        help=(
+            "AOI GeoJSON path for 'ingest' (absolute or relative to cars/). "
+            "Defaults to cars/aoi.geojson."
+        ),
+    )
+
+    ap.add_argument(
+        "--split",
+        default="test",
+        help=(
+            "Split folder to use with --run-id for 'infer'/'export' source paths "
+            "(default: test)."
+        ),
+    )
+
+    ap.add_argument(
+        "--source",
+        default=None,
+        help=(
+            "Override image source for 'infer'/'export' (absolute or relative to cars/). "
+            "If omitted and --run-id is set, defaults to data/aoi_runs/<run-id>/<split>/images."
+        ),
+    )
+
+    ap.add_argument(
+        "--project",
+        default=None,
+        help=(
+            "Override Ultralytics project for 'infer'/'export'. "
+            "If omitted and --run-id is set, defaults to 'aoi_tests'."
+        ),
+    )
+
+    ap.add_argument(
+        "--name",
+        default=None,
+        help=(
+            "Override Ultralytics run name for 'infer'/'export'. "
+            "If omitted and --run-id is set, defaults to the run id."
+        ),
+    )
+
+    ap.add_argument(
+        "--export-output",
+        default=None,
+        help=(
+            "Override GeoJSON output path for 'export' (absolute or relative to cars/). "
+            "If omitted and --run-id is set, defaults to exports/<run-id>.geojson."
+        ),
+    )
     args = ap.parse_args()
     if args.step == "ingest":
-        ingest_data(run_id=args.run_id)
+        ingest_data(run_id=args.run_id, aoi_path=args.aoi)
     elif args.step == "prepare":
         convert_to_yolo_format()
     elif args.step == "train":
@@ -1054,9 +1149,22 @@ def main():
     elif args.step == "val":
         run_validation()
     elif args.step == "infer":
-        run_inference()
+        run_inference(
+            run_id=args.run_id,
+            split=args.split,
+            source=args.source,
+            project=args.project,
+            name=args.name,
+        )
     elif args.step == "export":
-        export_geojson()
+        export_geojson(
+            run_id=args.run_id,
+            source_split=args.split,
+            source=args.source,
+            project=args.project,
+            name=args.name,
+            output=args.export_output,
+        )
     elif args.step == "visualize":
         visualize_map()
     elif args.step == "all":
