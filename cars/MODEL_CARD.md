@@ -53,19 +53,24 @@ Training defaults live in `cars/config.yaml` under `training:`:
 Run:
 
 ```bash
-python cars/scripts/pipeline.py val
+python cars/scripts/pipeline.py val --run-id run_alameda_02222026
 ```
 
-Record the metrics here after validation:
+Validation run output:
+
+- Metrics: `cars/runs/detect/val_run_alameda_02222026/metrics.json`
+- Summary line: `all 73 238 0.913 0.927 0.973 0.672`
+
+Recorded metrics (Alameda validation set):
 
 | Metric | Value | Notes |
 |---|---:|---|
-| mAP@0.5 |  |  |
-| mAP@0.5:0.95 |  |  |
-| Precision |  |  |
-| Recall |  |  |
-| Num images |  |  |
-| Num instances |  |  |
+| mAP@0.5 | 0.9729 | Ultralytics `metrics/mAP50(B)` |
+| mAP@0.5:0.95 | 0.6717 | Ultralytics `metrics/mAP50-95(B)` |
+| Precision | 0.9131 | Ultralytics `metrics/precision(B)` |
+| Recall | 0.9271 | Ultralytics `metrics/recall(B)` |
+| Num images | 73 | `cars/data/aoi_runs/run_alameda_02222026/val/images` |
+| Num instances | 238 | From Ultralytics val summary |
 
 ### Qualitative / AOI Generalization Tests
 
