@@ -746,7 +746,15 @@ def run_inference(
         print(f"[infer] Inference failed with exit code {exc.returncode}.")
 
 
-def run_validation():
+def run_validation(
+    *,
+    run_id: Optional[str] = None,
+    train_split: str = "train",
+    val_split: str = "val",
+    data: Optional[str] = None,
+    project: Optional[str] = None,
+    name: Optional[str] = None,
+):
     """Run YOLOv8 validation and persist metrics to disk.
 
     Uses the Ultralytics Python API so that metrics are saved alongside the
@@ -788,12 +796,66 @@ def run_validation():
     imgsz = int(val_cfg.get("imgsz", train_cfg.get("imgsz", 640)))
     batch = int(val_cfg.get("batch", train_cfg.get("batch", 16)))
     device = str(val_cfg.get("device", train_cfg.get("device", 0)))
-    project = str(val_cfg.get("project", "runs/detect"))
-    name = str(val_cfg.get("name", "val"))
+
+    if run_id and project is None:
+        project = "runs/val"
+    project = str(project if project is not None else val_cfg.get("project", "runs/detect"))
+
+    if run_id and name is None:
+        name = f"val_{run_id}"
+    name = str(name if name is not None else val_cfg.get("name", "val"))
 
     model_path = cars_dir / model
     if not model_path.exists():
         print(f"[val] Model checkpoint not found at {model_path}.")
+        return
+
+    def _resolve_data_path() -> str:
+        if data:
+            data_path = Path(data)
+            if not data_path.is_absolute():
+                data_path = cars_dir / data_path
+            return str(data_path)
+
+        if not run_id:
+            # Default: validate against cars/config.yaml dataset definition.
+            return str(config_path)
+
+        # Run-id mode: validate against AOI-run folders under cars/data/aoi_runs.
+        run_root = cars_dir / "data" / "aoi_runs" / run_id
+        dataset_yaml = run_root / "dataset.yaml"
+        train_images = run_root / train_split / "images"
+        val_images = run_root / val_split / "images"
+
+        if not train_images.exists():
+            print(f"[val] Train images not found at {train_images}.")
+            return ""
+        if not val_images.exists():
+            print(f"[val] Val images not found at {val_images}.")
+            return ""
+
+        if not dataset_yaml.exists():
+            dataset_yaml.parent.mkdir(parents=True, exist_ok=True)
+            nc = int(cfg.get("nc", 1) or 1)
+            dataset_yaml.write_text(
+                "\n".join(
+                    [
+                        "path: cars",
+                        f"train: data/aoi_runs/{run_id}/{train_split}/images",
+                        f"val: data/aoi_runs/{run_id}/{val_split}/images",
+                        f"nc: {nc}",
+                        "names: [\"car\"]",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            print(f"[val] Wrote dataset YAML to {dataset_yaml}.")
+
+        return str(dataset_yaml)
+
+    data_path = _resolve_data_path()
+    if not data_path:
         return
 
     project_path = Path(project)
@@ -810,7 +872,7 @@ def run_validation():
     try:
         yolo_model = YOLO(str(model_path))
         results = yolo_model.val(
-            data=str(config_path),
+            data=data_path,
             imgsz=imgsz,
             batch=batch,
             device=device,
@@ -1163,6 +1225,51 @@ def main():
             "If omitted and --run-id is set, defaults to exports/<run-id>.geojson."
         ),
     )
+
+    ap.add_argument(
+        "--val-train-split",
+        default="train",
+        help=(
+            "Train split folder name under cars/data/aoi_runs/<run-id>/ used for 'val' "
+            "when --run-id is provided (default: train)."
+        ),
+    )
+
+    ap.add_argument(
+        "--val-split",
+        default="val",
+        help=(
+            "Validation split folder name under cars/data/aoi_runs/<run-id>/ used for 'val' "
+            "when --run-id is provided (default: val)."
+        ),
+    )
+
+    ap.add_argument(
+        "--val-data",
+        default=None,
+        help=(
+            "Optional dataset YAML path for 'val' (absolute or relative to cars/). "
+            "If set, this overrides cars/config.yaml and --run-id dataset resolution."
+        ),
+    )
+
+    ap.add_argument(
+        "--val-project",
+        default=None,
+        help=(
+            "Override Ultralytics project for 'val'. If omitted and --run-id is set, "
+            "defaults to runs/val."
+        ),
+    )
+
+    ap.add_argument(
+        "--val-name",
+        default=None,
+        help=(
+            "Override Ultralytics run name for 'val'. If omitted and --run-id is set, "
+            "defaults to val_<run-id>."
+        ),
+    )
     args = ap.parse_args()
     if args.step == "ingest":
         ingest_data(run_id=args.run_id, aoi_path=args.aoi)
@@ -1171,7 +1278,14 @@ def main():
     elif args.step == "train":
         train_yolov8()
     elif args.step == "val":
-        run_validation()
+        run_validation(
+            run_id=args.run_id,
+            train_split=args.val_train_split,
+            val_split=args.val_split,
+            data=args.val_data,
+            project=args.val_project,
+            name=args.val_name,
+        )
     elif args.step == "infer":
         run_inference(
             run_id=args.run_id,
