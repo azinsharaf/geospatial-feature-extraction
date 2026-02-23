@@ -1,0 +1,41 @@
+{
+  "model": {
+    "path": "cars/models/yolov8s_cars_best.pt",
+    "sha256": "e353d78be8b25686fc68e87ad97ca3451cad4eea8b2c35e9a36235c91ae1cef8",
+    "size_mb": 21.48
+  },
+  "environment": {
+    "python": "3.12.10",
+    "torch": "2.10.0+cu130",
+    "ultralytics": "8.4.11"
+  },
+  "dataset": {
+    "train": "data/train/images",
+    "val": "data/val/images",
+    "test": "data/test/images",
+    "nc": 1,
+    "names": [
+      "car"
+    ]
+  },
+  "training": {
+    "model": "models/yolov8s.pt",
+    "epochs": 100,
+    "imgsz": 640,
+    "batch": 16,
+    "device": 0,
+    "workers": 8,
+    "project": "cars",
+    "name": "yolov8s_cars"
+  },
+  "inference_defaults": {
+    "model": "models/yolov8s_cars_best.pt",
+    "source": "data/test/images",
+    "imgsz": 640,
+    "conf": 0.25,
+    "iou": 0.45,
+    "device": 0,
+    "project": "cars",
+    "name": "yolov8s_cars_infer_100epoch_conf025"
+  }
+}

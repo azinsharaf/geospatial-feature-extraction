@@ -34,6 +34,21 @@ Notes:
 - `cars/runs/`: Ultralytics outputs (ignored by git)
 - `cars/exports/`: GeoJSON exports (GeoJSON files are committed; other artifacts are ignored)
 - `cars/models/yolov8s_cars_best.pt`: final trained model checkpoint (committed)
+- `cars/models/yolov8s_cars_best.meta.json`: model parameters and environment info (committed)
+
+## Model Parameters
+
+The final trained model checkpoint is committed as `cars/models/yolov8s_cars_best.pt`.
+
+To make runs reproducible, this repo also checks in a small metadata file:
+
+- `cars/models/yolov8s_cars_best.meta.json`
+
+It includes:
+
+- the checkpoint SHA256 and size
+- Python / Torch / Ultralytics versions
+- the `training:` and `inference:` defaults from `cars/config.yaml`
 
 ## AOI GeoJSON Schema
 

@@ -20,6 +20,7 @@ env/
 cars/data/
 cars/models/*
 !cars/models/yolov8s_cars_best.pt
+!cars/models/yolov8s_cars_best.meta.json
 cars/runs/
 cars/exports/*
 !cars/exports/*.geojson
