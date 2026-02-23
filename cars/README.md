@@ -50,6 +50,10 @@ It includes:
 - Python / Torch / Ultralytics versions
 - the `training:` and `inference:` defaults from `cars/config.yaml`
 
+For a human-readable evaluation and usage summary, see:
+
+- `cars/MODEL_CARD.md`
+
 ## AOI GeoJSON Schema
 
 Your AOI file must be a GeoJSON `FeatureCollection` with `Polygon` or `MultiPolygon` features.
