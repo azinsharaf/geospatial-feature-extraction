@@ -11,7 +11,7 @@
     {
       "type": "Feature",
       "properties": {
-        "site_id": "example_site_1",
+        "site_id": "alameda_02222036",
         "split": "train",
         "description": "REPLACE this polygon with your project AOI; coordinates are EPSG:3857 (Web Mercator meters)."
       },
@@ -19,11 +19,11 @@
         "type": "Polygon",
         "coordinates": [
           [
-            [-13609185.14, 4550609.50],
-            [-13609185.14, 4551609.50],
-            [-13608185.14, 4551609.50],
-            [-13608185.14, 4550609.50],
-            [-13609185.14, 4550609.50]
+            [-13609185.14, 4550609.5],
+            [-13609185.14, 4551609.5],
+            [-13608185.14, 4551609.5],
+            [-13608185.14, 4550609.5],
+            [-13609185.14, 4550609.5]
           ]
         ]
       }
