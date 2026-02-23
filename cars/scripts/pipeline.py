@@ -13,7 +13,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Tuple, cast
+from typing import Dict, List, Optional, Tuple, cast
 
 import geopandas as gpd
 import requests
@@ -205,21 +205,25 @@ def _create_wmts_session() -> requests.Session:
     return session
 
 
-def ingest_data():
-    """Download imagery tiles from WMTS into cars/data and write a manifest.
+def ingest_data(run_id: Optional[str] = None):
+    """Download imagery tiles from WMTS and write a manifest.
 
-    - Reads WMTS configuration from ``cars/config.yaml``.
-    - Reads AOIs from ``cars/aoi.geojson``
-    - For each AOI (Polygon/MultiPolygon in EPSG:3857) and split
-      (train/val/test), computes tile row/col ranges that cover its bounding
-      box at the configured zoom level.
-    - Requests each tile via WMTS GetTile and saves to
-      ``cars/data/<split>/images/``.
-    - Appends metadata for each tile to ``cars/data/manifest.csv``.
+    If ``run_id`` is provided, tiles and the manifest are written under:
+
+    - ``cars/data/aoi_runs/<run_id>/<split>/images``
+    - ``cars/data/aoi_runs/<run_id>/manifest.csv``
+
+    Otherwise, the default layout is used:
+
+    - ``cars/data/<split>/images``
+    - ``cars/data/manifest.csv``
     """
 
     cars_dir = _cars_dir()
-    data_dir = cars_dir / "data"
+    if run_id:
+        data_dir = cars_dir / "data" / "aoi_runs" / run_id
+    else:
+        data_dir = cars_dir / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -1032,9 +1036,17 @@ def main():
         ],
         help="Step to execute",
     )
+    ap.add_argument(
+        "--run-id",
+        default=None,
+        help=(
+            "Optional run identifier used by 'ingest' to write under "
+            "cars/data/aoi_runs/<run-id>/ instead of cars/data/."
+        ),
+    )
     args = ap.parse_args()
     if args.step == "ingest":
-        ingest_data()
+        ingest_data(run_id=args.run_id)
     elif args.step == "prepare":
         convert_to_yolo_format()
     elif args.step == "train":
