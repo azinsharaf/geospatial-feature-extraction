@@ -9,6 +9,10 @@ The workflow is:
 3. Run inference on new AOIs
 4. Export detections to GeoJSON (EPSG:3857) for QA in a GIS
 
+Example result (detections overlaid in a GIS):
+
+![Car detections (GIS overlay)](../docs/images/car_detection.png)
+
 The pipeline entrypoint is `cars/scripts/pipeline.py`.
 
 ## Requirements
