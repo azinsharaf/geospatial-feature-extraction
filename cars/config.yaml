@@ -1,33 +1,4 @@
-train: data/train/images
-val: data/val/images
-test: data/test/images
-nc: 1
-names: ["car"]
-
-# Training configuration for pipeline.py (used by train_yolov8)
-training:
-  model: models/yolov8s.pt # YOLOv8 model variant
-  epochs: 100
-  imgsz: 640
-  batch: 16
-  device: 0 # or "cpu", "0,1", etc.
-  workers: 8
-  project: cars
-  name: yolov8s_cars
-
-# Inference configuration for pipeline.py (used by run_inference)
-inference:
-  # Default to the best checkpoint produced by training
-  model: models/yolov8s_cars_best.pt
-  source: data/test/images
-  imgsz: 640
-  conf: 0.25
-  iou: 0.45
-  device: 0 # or "cpu", "0,1", etc.
-  project: cars
-  name: yolov8s_cars_infer_100epoch_conf025
-
-# WMTS configuration for data ingestion
+# 1) Ingest: WMTS configuration (used by ingest_data)
 wmts:
   service_name: PICT-CAALAM23-lIoWT9vYRg
   # Base WMTS endpoint (used for capabilities and KVP-style requests)
@@ -42,3 +13,33 @@ wmts:
   # Optional REST-style resource template (preferred when available).
   # Derived from the WMTS capabilities <ResourceURL> element.
   resource_url_template: "https://svc.pictometry.com/Image/6D9E15C5-C6B4-4ACB-A244-4C44ECA33D90/wmts/PICT-CAALAM23-lIoWT9vYRg/{Style}/{TileMatrixSet}/{TileMatrix}/{TileCol}/{TileRow}.png"
+
+# 2) Prepare/Train: Ultralytics dataset definition
+train: data/train/images
+val: data/val/images
+test: data/test/images
+nc: 1
+names: ["car"]
+
+# 3) Train: configuration for pipeline.py (used by train_yolov8)
+training:
+  model: models/yolov8s.pt # YOLOv8 model variant
+  epochs: 100
+  imgsz: 640
+  batch: 16
+  device: 0 # or "cpu", "0,1", etc.
+  workers: 8
+  project: cars
+  name: yolov8s_cars
+
+# 4) Infer: configuration for pipeline.py (used by run_inference)
+inference:
+  # Default to the best checkpoint produced by training
+  model: models/yolov8s_cars_best.pt
+  source: data/test/images
+  imgsz: 640
+  conf: 0.25
+  iou: 0.45
+  device: 0 # or "cpu", "0,1", etc.
+  project: cars
+  name: yolov8s_cars_infer_100epoch_conf025
