@@ -1,0 +1,19 @@
+# tree_canopy/config.yaml
+# WMTS ingestion settings for the tree canopy workflow.
+# Update the values below to match your WMTS provider.
+wmts:
+  url: https://your-wmts-server.com/wmts
+  layer: tree_canopy_layer
+  tile_matrix_set: GoogleMapsCompatible
+  tile_matrix: 20
+  style: default
+  format: image/png
+  # Optional REST-style ResourceURL template, similar to WMTS <ResourceURL> nodes.
+  #resource_url_template: "https://your-wmts-server.com/wmts/{layer}/{TileMatrixSet}/{TileMatrix}/{TileCol}/{TileRow}.png"
+
+# dataset definition used later by prepare/train/validation steps
+train: data/train/images
+val: data/val/images
+test: data/test/images
+nc: 1
+names: ["tree_canopy"]

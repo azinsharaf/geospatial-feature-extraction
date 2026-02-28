@@ -1,0 +1,315 @@
+"""WMTS ingestion pipeline for tree canopy segmentation imagery."""
+
+import argparse
+import csv
+import os
+import re
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+import geopandas as gpd
+import requests
+import yaml
+
+# Web Mercator world bounds (EPSG:3857) used for deriving tile math
+WEB_MERCATOR_BOUNDS: Tuple[float, float, float, float] = (
+    -20037508.342789244,
+    -20037508.342789244,
+    20037508.342789244,
+    20037508.342789244,
+)
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _tree_dir() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _load_wmts_config() -> Dict[str, str]:
+    config_path = _tree_dir() / "config.yaml"
+    if not config_path.exists():
+        raise FileNotFoundError(f"WMTS config not found at {config_path}")
+
+    with config_path.open("r", encoding="utf-8") as fh:
+        cfg = yaml.safe_load(fh) or {}
+
+    wmts_cfg = cfg.get("wmts") or {}
+    required_keys = [
+        "url",
+        "layer",
+        "tile_matrix_set",
+        "tile_matrix",
+        "style",
+        "format",
+    ]
+
+    missing = [key for key in required_keys if key not in wmts_cfg]
+    if missing:
+        raise KeyError(f"Missing WMTS keys in config.yaml: {missing}")
+
+    return wmts_cfg
+
+
+def _zoom_from_tile_matrix(tile_matrix_value) -> int:
+    try:
+        zoom = int(tile_matrix_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"tile_matrix must be an integer zoom level, got {tile_matrix_value!r}"
+        ) from exc
+
+    if not (0 <= zoom <= 30):
+        raise ValueError("tile_matrix should be between 0 and 30")
+
+    return zoom
+
+
+def _bbox_to_tile_range(
+    bbox: Tuple[float, float, float, float], zoom: int
+) -> Tuple[int, int, int, int]:
+    minx, miny, maxx, maxy = bbox
+    world_minx, world_miny, world_maxx, world_maxy = WEB_MERCATOR_BOUNDS
+    n = 2**zoom
+
+    tile_size_x = (world_maxx - world_minx) / n
+    tile_size_y = (world_maxy - world_miny) / n
+
+    def _col(x: float) -> int:
+        return int((x - world_minx) / tile_size_x)
+
+    def _row(y: float) -> int:
+        return int((world_maxy - y) / tile_size_y)
+
+    col_min = max(0, _col(minx))
+    col_max = min(n - 1, _col(maxx))
+    row_min = max(0, _row(maxy))
+    row_max = min(n - 1, _row(miny))
+
+    return row_min, row_max, col_min, col_max
+
+
+def _tile_bounds(zoom: int, row: int, col: int) -> Tuple[float, float, float, float]:
+    world_minx, world_miny, world_maxx, world_maxy = WEB_MERCATOR_BOUNDS
+    n = 2**zoom
+    tile_size_x = (world_maxx - world_minx) / n
+    tile_size_y = (world_maxy - world_miny) / n
+
+    xmin = world_minx + col * tile_size_x
+    xmax = xmin + tile_size_x
+    ymax = world_maxy - row * tile_size_y
+    ymin = ymax - tile_size_y
+    return xmin, ymin, xmax, ymax
+
+
+def _format_extension(fmt: str) -> str:
+    fmt = (fmt or "").lower()
+    if "jpeg" in fmt or "jpg" in fmt:
+        return ".jpg"
+    if "png" in fmt:
+        return ".png"
+    if "tiff" in fmt or "tif" in fmt:
+        return ".tif"
+    return ".img"
+
+
+def _build_tile_url(wmts_cfg: Dict[str, str], tile_row: int, tile_col: int) -> str:
+    template = wmts_cfg.get("resource_url_template")
+    if template:
+        return template.format(
+            Style=wmts_cfg.get("style", "default"),
+            TileMatrixSet=wmts_cfg["tile_matrix_set"],
+            TileMatrix=wmts_cfg["tile_matrix"],
+            TileCol=tile_col,
+            TileRow=tile_row,
+            layer=wmts_cfg.get("layer", ""),
+        )
+
+    from urllib.parse import urlencode
+
+    base_url = wmts_cfg["url"].rstrip("?")
+    params = {
+        "service": "WMTS",
+        "request": "GetTile",
+        "version": "1.0.0",
+        "layer": wmts_cfg["layer"],
+        "style": wmts_cfg.get("style", "default"),
+        "tilematrixset": wmts_cfg["tile_matrix_set"],
+        "tilematrix": wmts_cfg["tile_matrix"],
+        "tilerow": tile_row,
+        "tilecol": tile_col,
+        "format": wmts_cfg.get("format", "image/png"),
+    }
+    return f"{base_url}?{urlencode(params)}"
+
+
+def _create_wmts_session() -> requests.Session:
+    session = requests.Session()
+    api_key = os.getenv("WMTS_API_KEY")
+    if api_key:
+        session.headers.update({"Authorization": f"Bearer {api_key}"})
+    return session
+
+
+def ingest_data(run_id: Optional[str], aoi_path: Optional[str]) -> None:
+    if not run_id or not aoi_path:
+        print("[ingest] --run-id and --aoi are required for ingest.")
+        return
+
+    tree_dir = _tree_dir()
+    data_root = tree_dir / "data" / "aoi_runs" / run_id
+    data_root.mkdir(parents=True, exist_ok=True)
+
+    try:
+        wmts_cfg = _load_wmts_config()
+    except Exception as exc:
+        print(f"[ingest] Failed to load WMTS config: {exc}")
+        return
+
+    zoom = _zoom_from_tile_matrix(wmts_cfg["tile_matrix"])
+
+    aoi_candidates: List[Path]
+    candidate = Path(aoi_path)
+    if candidate.is_absolute():
+        aoi_candidates = [candidate]
+    else:
+        aoi_candidates = [
+            Path.cwd() / candidate,
+            tree_dir / candidate,
+            tree_dir / "aois" / candidate,
+            tree_dir / "aois" / candidate.name,
+        ]
+
+    resolved_aoi: Optional[Path] = None
+    for path in aoi_candidates:
+        if path.exists():
+            resolved_aoi = path
+            break
+
+    if resolved_aoi is None:
+        print("[ingest] AOI file not found. Checked:")
+        for path in aoi_candidates:
+            print("  ", path)
+        return
+
+    try:
+        aoi_gdf = gpd.read_file(resolved_aoi)
+    except Exception as exc:
+        print(f"[ingest] Failed to read AOI file: {exc}")
+        return
+
+    if aoi_gdf.empty:
+        print("[ingest] AOI has no features.")
+        return
+
+    if aoi_gdf.crs is None:
+        print("[ingest] AOI has no CRS; assuming EPSG:3857.")
+        aoi_gdf = aoi_gdf.set_crs(epsg=3857)
+    elif str(aoi_gdf.crs.to_epsg()) != "3857":
+        print(f"[ingest] Reprojecting AOI from {aoi_gdf.crs} to EPSG:3857.")
+        aoi_gdf = aoi_gdf.to_crs(epsg=3857)
+
+    manifest_path = data_root / "manifest.csv"
+    manifest_exists = manifest_path.exists()
+    with manifest_path.open("a", newline="", encoding="utf-8") as mf:
+        writer = csv.writer(mf)
+        if not manifest_exists:
+            writer.writerow([
+                "image_id",
+                "split",
+                "rel_path",
+                "layer",
+                "tile_matrix_set",
+                "tile_matrix",
+                "tile_row",
+                "tile_col",
+                "crs",
+                "xmin",
+                "ymin",
+                "xmax",
+                "ymax",
+                "site_id",
+            ])
+
+        session = _create_wmts_session()
+        img_ext = _format_extension(wmts_cfg.get("format", "image/png"))
+        total = 0
+
+        for idx, row in aoi_gdf.iterrows():
+            geom = row.geometry
+            if geom is None or geom.is_empty:
+                continue
+
+            site_id = str(row.get("site_id") or row.get("SITE_ID") or f"site_{idx}")
+            split = str(row.get("split") or "train").lower()
+            if split not in {"train", "val", "test"}:
+                split = "train"
+
+            row_min, row_max, col_min, col_max = _bbox_to_tile_range(geom.bounds, zoom)
+            split_images = data_root / split / "images"
+            split_images.mkdir(parents=True, exist_ok=True)
+
+            for tile_row in range(row_min, row_max + 1):
+                for tile_col in range(col_min, col_max + 1):
+                    image_id = (
+                        f"{wmts_cfg['layer']}_z{wmts_cfg['tile_matrix']}_r{tile_row}_c{tile_col}"
+                    )
+                    img_name = image_id + img_ext
+                    img_path = split_images / img_name
+
+                    if not img_path.exists():
+                        url = _build_tile_url(wmts_cfg, tile_row, tile_col)
+                        try:
+                            resp = session.get(url, timeout=30)
+                        except Exception as exc:
+                            print(f"[ingest] Error fetching {image_id}: {exc}")
+                            continue
+
+                        if resp.status_code != 200:
+                            print(
+                                f"[ingest] Failed {image_id}: HTTP {resp.status_code}"
+                            )
+                            continue
+
+                        img_path.write_bytes(resp.content)
+
+                    xmin, ymin, xmax, ymax = _tile_bounds(zoom, tile_row, tile_col)
+                    rel_path = img_path.relative_to(_tree_dir()).as_posix()
+                    writer.writerow([
+                        image_id,
+                        split,
+                        rel_path,
+                        wmts_cfg["layer"],
+                        wmts_cfg["tile_matrix_set"],
+                        wmts_cfg["tile_matrix"],
+                        tile_row,
+                        tile_col,
+                        "EPSG:3857",
+                        xmin,
+                        ymin,
+                        xmax,
+                        ymax,
+                        site_id,
+                    ])
+                    total += 1
+
+        print(f"[ingest] Completed {total} tiles; manifest at {manifest_path}.")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Tree canopy WMTS ingestion.")
+    parser.add_argument("step", choices=["ingest"], help="Pipeline step to run")
+    parser.add_argument("--run-id", required=True, help="Identifier for this ingest run")
+    parser.add_argument("--aoi", required=True, help="AOI GeoJSON path (relative to tree_canopy/aois or absolute)")
+
+    args = parser.parse_args()
+    if args.step == "ingest":
+        ingest_data(run_id=args.run_id, aoi_path=args.aoi)
+
+
+if __name__ == "__main__":
+    main()
