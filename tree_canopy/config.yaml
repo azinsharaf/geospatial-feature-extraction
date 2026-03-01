@@ -12,6 +12,8 @@ wmts:
   tile_matrix: 20
   style: default
   format: image/png
+  # Percentage of tile width/height to pad around AOI bounds.
+  overlap_percent: 20
   # Optional REST-style resource template (preferred when available).
   # Derived from the WMTS capabilities <ResourceURL> element.
   resource_url_template: "https://svc.pictometry.com/Image/6D9E15C5-C6B4-4ACB-A244-4C44ECA33D90/wmts/PICT-CAALAM23-lIoWT9vYRg/{Style}/{TileMatrixSet}/{TileMatrix}/{TileCol}/{TileRow}.png"

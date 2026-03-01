@@ -171,6 +171,35 @@ def ingest_data(run_id: Optional[str], aoi_path: Optional[str]) -> None:
         return
 
     zoom = _zoom_from_tile_matrix(wmts_cfg["tile_matrix"])
+    overlap_percent = wmts_cfg.get("overlap_percent")
+    overlap_tiles = wmts_cfg.get("overlap_tiles")
+    overlap_ratio = 0.0
+    overlap_tile_count = 0
+
+    if overlap_percent is not None:
+        try:
+            overlap_ratio = float(overlap_percent) / 100.0
+        except (TypeError, ValueError):
+            print(
+                f"[ingest] overlap_percent must be a number, got {overlap_percent!r}"
+            )
+            return
+
+        if not (0.0 <= overlap_ratio <= 1.0):
+            print("[ingest] overlap_percent must be between 0 and 100.")
+            return
+    elif overlap_tiles is not None:
+        try:
+            overlap_tile_count = int(overlap_tiles)
+        except (TypeError, ValueError):
+            print(
+                f"[ingest] overlap_tiles must be an integer, got {overlap_tiles!r}"
+            )
+            return
+
+        if overlap_tile_count < 0:
+            print("[ingest] overlap_tiles must be >= 0.")
+            return
 
     aoi_candidates: List[Path]
     candidate = Path(aoi_path)
@@ -249,7 +278,29 @@ def ingest_data(run_id: Optional[str], aoi_path: Optional[str]) -> None:
             if split not in {"train", "val", "test"}:
                 split = "train"
 
-            row_min, row_max, col_min, col_max = _bbox_to_tile_range(geom.bounds, zoom)
+            geom_bounds = geom.bounds
+            if overlap_ratio:
+                world_minx, world_miny, world_maxx, world_maxy = WEB_MERCATOR_BOUNDS
+                tiles_across = 2**zoom
+                tile_size_x = (world_maxx - world_minx) / tiles_across
+                tile_size_y = (world_maxy - world_miny) / tiles_across
+                pad_x = tile_size_x * overlap_ratio
+                pad_y = tile_size_y * overlap_ratio
+                minx, miny, maxx, maxy = geom_bounds
+                geom_bounds = (
+                    minx - pad_x,
+                    miny - pad_y,
+                    maxx + pad_x,
+                    maxy + pad_y,
+                )
+
+            row_min, row_max, col_min, col_max = _bbox_to_tile_range(geom_bounds, zoom)
+            if overlap_tile_count:
+                max_index = (2**zoom) - 1
+                row_min = max(0, row_min - overlap_tile_count)
+                row_max = min(max_index, row_max + overlap_tile_count)
+                col_min = max(0, col_min - overlap_tile_count)
+                col_max = min(max_index, col_max + overlap_tile_count)
             split_images = data_root / split / "images"
             split_images.mkdir(parents=True, exist_ok=True)
 
