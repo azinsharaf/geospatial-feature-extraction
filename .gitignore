@@ -36,3 +36,6 @@ cars/yolo_data.yaml
 Thumbs.db
 /tree_canopy/data/aoi_runs/alameda_trees_train/train/images
 /tree_canopy/data/aoi_runs/alameda_trees_train/manifest.csv
+/tree_canopy/data/aoi_runs/alameda_trees/test/images
+/tree_canopy/data/aoi_runs/alameda_trees/train/images
+/tree_canopy/data/aoi_runs/alameda_trees/val/images
