@@ -24,3 +24,9 @@ val: data/val/images
 test: data/test/images
 nc: 1
 names: ["tree_canopy"]
+
+# Optional: split percentages for ingest redistribution (must total 100).
+dataset_split:
+  train: 70
+  val: 20
+  test: 10

@@ -3,6 +3,7 @@
 import argparse
 import csv
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -30,14 +31,17 @@ def _tree_dir() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def _load_wmts_config() -> Dict[str, str]:
+def _load_tree_config() -> Dict:
     config_path = _tree_dir() / "config.yaml"
     if not config_path.exists():
-        raise FileNotFoundError(f"WMTS config not found at {config_path}")
+        raise FileNotFoundError(f"Config not found at {config_path}")
 
     with config_path.open("r", encoding="utf-8") as fh:
-        cfg = yaml.safe_load(fh) or {}
+        return yaml.safe_load(fh) or {}
 
+
+def _load_wmts_config() -> Dict[str, str]:
+    cfg = _load_tree_config()
     wmts_cfg = cfg.get("wmts") or {}
     required_keys = [
         "url",
@@ -53,6 +57,32 @@ def _load_wmts_config() -> Dict[str, str]:
         raise KeyError(f"Missing WMTS keys in config.yaml: {missing}")
 
     return wmts_cfg
+
+
+def _load_dataset_split_config() -> Optional[Dict[str, float]]:
+    cfg = _load_tree_config()
+    split_cfg = cfg.get("dataset_split")
+    if not split_cfg:
+        return None
+
+    try:
+        train_pct = float(split_cfg.get("train", 0))
+        val_pct = float(split_cfg.get("val", 0))
+        test_pct = float(split_cfg.get("test", 0))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("dataset_split values must be numeric") from exc
+
+    if any(pct < 0 for pct in (train_pct, val_pct, test_pct)):
+        raise ValueError("dataset_split values must be >= 0")
+
+    total = train_pct + val_pct + test_pct
+    if total <= 0:
+        raise ValueError("dataset_split must total more than 0")
+
+    if abs(total - 100.0) > 0.001:
+        raise ValueError("dataset_split values must total 100")
+
+    return {"train": train_pct, "val": val_pct, "test": test_pct}
 
 
 def _zoom_from_tile_matrix(tile_matrix_value) -> int:
@@ -168,6 +198,12 @@ def ingest_data(run_id: Optional[str], aoi_path: Optional[str]) -> None:
         wmts_cfg = _load_wmts_config()
     except Exception as exc:
         print(f"[ingest] Failed to load WMTS config: {exc}")
+        return
+
+    try:
+        split_cfg = _load_dataset_split_config()
+    except Exception as exc:
+        print(f"[ingest] Failed to load dataset_split config: {exc}")
         return
 
     zoom = _zoom_from_tile_matrix(wmts_cfg["tile_matrix"])
@@ -348,7 +384,77 @@ def ingest_data(run_id: Optional[str], aoi_path: Optional[str]) -> None:
                     ])
                     total += 1
 
+        if split_cfg:
+            _redistribute_tiles(data_root, manifest_path, run_id, split_cfg)
+
         print(f"[ingest] Completed {total} tiles; manifest at {manifest_path}.")
+
+
+def _redistribute_tiles(
+    data_root: Path, manifest_path: Path, run_id: str, split_cfg: Dict[str, float]
+) -> None:
+    if not manifest_path.exists():
+        return
+
+    with manifest_path.open("r", newline="", encoding="utf-8") as mf:
+        reader = csv.DictReader(mf)
+        rows = list(reader)
+
+    if not rows:
+        return
+
+    rel_paths = sorted({row.get("rel_path", "") for row in rows if row.get("rel_path")})
+    if not rel_paths:
+        return
+
+    total = len(rel_paths)
+    val_count = int(round(total * (split_cfg["val"] / 100.0)))
+    test_count = int(round(total * (split_cfg["test"] / 100.0)))
+    train_count = max(0, total - val_count - test_count)
+
+    rng = random.Random(42)
+    rng.shuffle(rel_paths)
+
+    split_map: Dict[str, str] = {}
+    for rel_path in rel_paths[:train_count]:
+        split_map[rel_path] = "train"
+    for rel_path in rel_paths[train_count : train_count + val_count]:
+        split_map[rel_path] = "val"
+    for rel_path in rel_paths[train_count + val_count :]:
+        split_map[rel_path] = "test"
+
+    tree_dir = _tree_dir()
+    for rel_path, split in split_map.items():
+        src_path = tree_dir / rel_path
+        if not src_path.exists():
+            continue
+
+        dest_dir = data_root / split / "images"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = dest_dir / src_path.name
+        if dest_path.resolve() == src_path.resolve():
+            continue
+        if dest_path.exists():
+            dest_path.unlink()
+        shutil.move(str(src_path), str(dest_path))
+
+    updated_rows: List[Dict[str, str]] = []
+    for row in rows:
+        rel_path = row.get("rel_path", "")
+        split = split_map.get(rel_path, row.get("split", "train"))
+        filename = Path(rel_path).name if rel_path else ""
+        new_rel_path = Path("data") / "aoi_runs" / run_id / split / "images" / filename
+        row["split"] = split
+        row["rel_path"] = new_rel_path.as_posix()
+        updated_rows.append(row)
+
+    temp_path = manifest_path.with_suffix(".tmp")
+    with temp_path.open("w", newline="", encoding="utf-8") as mf:
+        writer = csv.DictWriter(mf, fieldnames=rows[0].keys())
+        writer.writeheader()
+        writer.writerows(updated_rows)
+
+    temp_path.replace(manifest_path)
 
 
 def main() -> None:
