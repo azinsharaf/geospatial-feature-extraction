@@ -304,6 +304,9 @@ def ingest_data(run_id: Optional[str], aoi_path: Optional[str]) -> None:
         session = _create_wmts_session()
         img_ext = _format_extension(wmts_cfg.get("format", "image/png"))
         total = 0
+        downloaded = 0
+        processed = 0
+        last_downloaded: Optional[str] = None
 
         for idx, row in aoi_gdf.iterrows():
             geom = row.geometry
@@ -364,6 +367,15 @@ def ingest_data(run_id: Optional[str], aoi_path: Optional[str]) -> None:
                             continue
 
                         img_path.write_bytes(resp.content)
+                        downloaded += 1
+                        last_downloaded = image_id
+                    processed += 1
+                    if processed % 100 == 0:
+                        downloading = last_downloaded or "none"
+                        print(
+                            f"[ingest] Processed {processed} tiles "
+                            f"(downloaded {downloaded}, downloading {downloading}, written {total})."
+                        )
 
                     xmin, ymin, xmax, ymax = _tile_bounds(zoom, tile_row, tile_col)
                     rel_path = img_path.relative_to(_tree_dir()).as_posix()
