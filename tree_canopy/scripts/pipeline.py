@@ -2,6 +2,7 @@
 
 import argparse
 import csv
+import hashlib
 import os
 import random
 import re
@@ -384,10 +385,12 @@ def ingest_data(run_id: Optional[str], aoi_path: Optional[str]) -> None:
                     ])
                     total += 1
 
-        if split_cfg:
-            _redistribute_tiles(data_root, manifest_path, run_id, split_cfg)
+    if split_cfg:
+        _redistribute_tiles(data_root, manifest_path, run_id, split_cfg)
 
-        print(f"[ingest] Completed {total} tiles; manifest at {manifest_path}.")
+    _check_duplicate_tiles(data_root)
+
+    print(f"[ingest] Completed {total} tiles; manifest at {manifest_path}.")
 
 
 def _redistribute_tiles(
@@ -455,6 +458,38 @@ def _redistribute_tiles(
         writer.writerows(updated_rows)
 
     temp_path.replace(manifest_path)
+
+
+def _check_duplicate_tiles(data_root: Path) -> None:
+    image_dirs = [
+        data_root / "train" / "images",
+        data_root / "val" / "images",
+        data_root / "test" / "images",
+    ]
+
+    hash_map: Dict[str, List[Path]] = {}
+    for image_dir in image_dirs:
+        if not image_dir.exists():
+            continue
+
+        for img_path in image_dir.glob("*.png"):
+            try:
+                digest = hashlib.sha256(img_path.read_bytes()).hexdigest()
+            except OSError as exc:
+                print(f"[ingest] Failed to read {img_path}: {exc}")
+                continue
+
+            hash_map.setdefault(digest, []).append(img_path)
+
+    duplicates = [paths for paths in hash_map.values() if len(paths) > 1]
+    if not duplicates:
+        print("[ingest] No duplicate PNG tiles found across splits.")
+        return
+
+    print("[ingest] Duplicate PNG tiles detected across splits:")
+    for paths in duplicates:
+        rel_paths = [p.relative_to(_tree_dir()).as_posix() for p in paths]
+        print("  " + ", ".join(rel_paths))
 
 
 def main() -> None:
