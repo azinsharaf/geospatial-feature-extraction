@@ -34,3 +34,5 @@ cars/yolo_data.yaml
 # OS junk
 .DS_Store
 Thumbs.db
+/tree_canopy/data/aoi_runs/alameda_trees_train/train/images
+/tree_canopy/data/aoi_runs/alameda_trees_train/manifest.csv
