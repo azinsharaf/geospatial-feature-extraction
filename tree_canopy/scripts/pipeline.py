@@ -2,14 +2,13 @@
 
 import argparse
 import csv
-import hashlib
 import os
 import random
 import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import geopandas as gpd
 import requests
@@ -307,6 +306,8 @@ def ingest_data(run_id: Optional[str], aoi_path: Optional[str]) -> None:
         downloaded = 0
         processed = 0
         last_downloaded: Optional[str] = None
+        seen_image_ids: Set[str] = set()
+        skipped_duplicates = 0
 
         for idx, row in aoi_gdf.iterrows():
             geom = row.geometry
@@ -349,6 +350,10 @@ def ingest_data(run_id: Optional[str], aoi_path: Optional[str]) -> None:
                     image_id = (
                         f"{wmts_cfg['layer']}_z{wmts_cfg['tile_matrix']}_r{tile_row}_c{tile_col}"
                     )
+                    if image_id in seen_image_ids:
+                        skipped_duplicates += 1
+                        continue
+                    seen_image_ids.add(image_id)
                     img_name = image_id + img_ext
                     img_path = split_images / img_name
 
@@ -399,6 +404,9 @@ def ingest_data(run_id: Optional[str], aoi_path: Optional[str]) -> None:
 
     if split_cfg:
         _redistribute_tiles(data_root, manifest_path, run_id, split_cfg)
+
+    if skipped_duplicates:
+        print(f"[ingest] Skipped {skipped_duplicates} duplicate tiles.")
 
     _check_duplicate_tiles(data_root)
 
@@ -479,21 +487,15 @@ def _check_duplicate_tiles(data_root: Path) -> None:
         data_root / "test" / "images",
     ]
 
-    hash_map: Dict[str, List[Path]] = {}
+    name_map: Dict[str, List[Path]] = {}
     for image_dir in image_dirs:
         if not image_dir.exists():
             continue
 
         for img_path in image_dir.glob("*.png"):
-            try:
-                digest = hashlib.sha256(img_path.read_bytes()).hexdigest()
-            except OSError as exc:
-                print(f"[ingest] Failed to read {img_path}: {exc}")
-                continue
+            name_map.setdefault(img_path.name, []).append(img_path)
 
-            hash_map.setdefault(digest, []).append(img_path)
-
-    duplicates = [paths for paths in hash_map.values() if len(paths) > 1]
+    duplicates = [paths for paths in name_map.values() if len(paths) > 1]
     if not duplicates:
         print("[ingest] No duplicate PNG tiles found across splits.")
         return
