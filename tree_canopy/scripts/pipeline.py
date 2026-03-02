@@ -2,6 +2,7 @@
 
 import argparse
 import csv
+import json
 import os
 import random
 import re
@@ -57,6 +58,10 @@ def _load_wmts_config() -> Dict[str, str]:
         raise KeyError(f"Missing WMTS keys in config.yaml: {missing}")
 
     return wmts_cfg
+
+
+def _normalize_label(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(name).strip().lower()).strip("_")
 
 
 def _load_dataset_split_config() -> Optional[Dict[str, float]]:
@@ -216,9 +221,7 @@ def ingest_data(run_id: Optional[str], aoi_path: Optional[str]) -> None:
         try:
             overlap_ratio = float(overlap_percent) / 100.0
         except (TypeError, ValueError):
-            print(
-                f"[ingest] overlap_percent must be a number, got {overlap_percent!r}"
-            )
+            print(f"[ingest] overlap_percent must be a number, got {overlap_percent!r}")
             return
 
         if not (0.0 <= overlap_ratio <= 1.0):
@@ -228,9 +231,7 @@ def ingest_data(run_id: Optional[str], aoi_path: Optional[str]) -> None:
         try:
             overlap_tile_count = int(overlap_tiles)
         except (TypeError, ValueError):
-            print(
-                f"[ingest] overlap_tiles must be an integer, got {overlap_tiles!r}"
-            )
+            print(f"[ingest] overlap_tiles must be an integer, got {overlap_tiles!r}")
             return
 
         if overlap_tile_count < 0:
@@ -283,22 +284,24 @@ def ingest_data(run_id: Optional[str], aoi_path: Optional[str]) -> None:
     with manifest_path.open("a", newline="", encoding="utf-8") as mf:
         writer = csv.writer(mf)
         if not manifest_exists:
-            writer.writerow([
-                "image_id",
-                "split",
-                "rel_path",
-                "layer",
-                "tile_matrix_set",
-                "tile_matrix",
-                "tile_row",
-                "tile_col",
-                "crs",
-                "xmin",
-                "ymin",
-                "xmax",
-                "ymax",
-                "site_id",
-            ])
+            writer.writerow(
+                [
+                    "image_id",
+                    "split",
+                    "rel_path",
+                    "layer",
+                    "tile_matrix_set",
+                    "tile_matrix",
+                    "tile_row",
+                    "tile_col",
+                    "crs",
+                    "xmin",
+                    "ymin",
+                    "xmax",
+                    "ymax",
+                    "site_id",
+                ]
+            )
 
         session = _create_wmts_session()
         img_ext = _format_extension(wmts_cfg.get("format", "image/png"))
@@ -347,9 +350,7 @@ def ingest_data(run_id: Optional[str], aoi_path: Optional[str]) -> None:
 
             for tile_row in range(row_min, row_max + 1):
                 for tile_col in range(col_min, col_max + 1):
-                    image_id = (
-                        f"{wmts_cfg['layer']}_z{wmts_cfg['tile_matrix']}_r{tile_row}_c{tile_col}"
-                    )
+                    image_id = f"{wmts_cfg['layer']}_z{wmts_cfg['tile_matrix']}_r{tile_row}_c{tile_col}"
                     if image_id in seen_image_ids:
                         skipped_duplicates += 1
                         continue
@@ -384,22 +385,24 @@ def ingest_data(run_id: Optional[str], aoi_path: Optional[str]) -> None:
 
                     xmin, ymin, xmax, ymax = _tile_bounds(zoom, tile_row, tile_col)
                     rel_path = img_path.relative_to(_tree_dir()).as_posix()
-                    writer.writerow([
-                        image_id,
-                        split,
-                        rel_path,
-                        wmts_cfg["layer"],
-                        wmts_cfg["tile_matrix_set"],
-                        wmts_cfg["tile_matrix"],
-                        tile_row,
-                        tile_col,
-                        "EPSG:3857",
-                        xmin,
-                        ymin,
-                        xmax,
-                        ymax,
-                        site_id,
-                    ])
+                    writer.writerow(
+                        [
+                            image_id,
+                            split,
+                            rel_path,
+                            wmts_cfg["layer"],
+                            wmts_cfg["tile_matrix_set"],
+                            wmts_cfg["tile_matrix"],
+                            tile_row,
+                            tile_col,
+                            "EPSG:3857",
+                            xmin,
+                            ymin,
+                            xmax,
+                            ymax,
+                            site_id,
+                        ]
+                    )
                     total += 1
 
     if split_cfg:
@@ -419,6 +422,156 @@ def ingest_data(run_id: Optional[str], aoi_path: Optional[str]) -> None:
     _check_duplicate_tiles(data_root)
 
     print(f"[ingest] Completed {total} tiles; manifest at {manifest_path}.")
+
+
+def prepare_yolo_segmentation(run_id: Optional[str]) -> None:
+    tree_dir = _tree_dir()
+    annotations_dir = tree_dir / "annotations"
+    if not annotations_dir.exists():
+        print(f"[prepare] No annotations directory found at {annotations_dir}.")
+        print("[prepare] Export COCO annotations before running this step.")
+        return
+
+    cfg = _load_tree_config()
+    names = cfg.get("names") or ["tree_canopy"]
+    name_map = {_normalize_label(name): idx for idx, name in enumerate(names)}
+
+    base_dir = tree_dir / "data"
+    if run_id:
+        base_dir = base_dir / "aoi_runs" / run_id
+
+    def _process_split(split: str, coco_path: Path) -> None:
+        if not coco_path.exists():
+            print(f"[prepare] Skipping split '{split}': {coco_path} not found.")
+            return
+
+        print(f"[prepare] Processing split '{split}' from {coco_path}.")
+
+        with coco_path.open("r", encoding="utf-8") as f:
+            coco = json.load(f)
+
+        images = coco.get("images", [])
+        annotations = coco.get("annotations", [])
+        categories = coco.get("categories", [])
+
+        cat_id_to_class_id: Dict[int, int] = {}
+        for cat in categories:
+            cid = int(cat.get("id"))
+            cname = _normalize_label(cat.get("name", ""))
+            if cname in name_map:
+                cat_id_to_class_id[cid] = name_map[cname]
+
+        if not cat_id_to_class_id:
+            print(
+                f"[prepare] No categories matched {names} for split '{split}'. "
+                "Update COCO category names or tree_canopy/config.yaml."
+            )
+            return
+
+        anns_by_image: Dict[int, List[Dict]] = {}
+        for ann in annotations:
+            image_id = ann.get("image_id")
+            if image_id is None:
+                continue
+            try:
+                image_id = int(image_id)
+            except (TypeError, ValueError):
+                continue
+            anns_by_image.setdefault(image_id, []).append(ann)
+
+        img_dir = base_dir / split / "images"
+        labels_dir = base_dir / split / "labels"
+        labels_dir.mkdir(parents=True, exist_ok=True)
+
+        num_images_with_labels = 0
+        num_polygons = 0
+        skipped_rle = 0
+
+        for img in images:
+            image_id = int(img.get("id"))
+            file_name = str(img.get("file_name", ""))
+            width = float(img.get("width", 0))
+            height = float(img.get("height", 0))
+
+            if width <= 0 or height <= 0:
+                print(
+                    f"[prepare] Skipping image_id={image_id} with invalid size "
+                    f"(width={width}, height={height})."
+                )
+                continue
+
+            image_path = img_dir / file_name
+            if not image_path.exists():
+                fallback = img_dir / Path(file_name).name
+                if fallback.exists():
+                    image_path = fallback
+                else:
+                    print(
+                        f"[prepare] Image file for COCO entry '{file_name}' "
+                        f"not found under {img_dir}; skipping."
+                    )
+                    continue
+
+            anns = anns_by_image.get(image_id, [])
+            if not anns:
+                label_path = labels_dir / (image_path.stem + ".txt")
+                label_path.write_text("", encoding="utf-8")
+                continue
+
+            yolo_lines: List[str] = []
+            for ann in anns:
+                cat_id_raw = ann.get("category_id")
+                if cat_id_raw is None:
+                    continue
+                try:
+                    cat_id = int(cat_id_raw)
+                except (TypeError, ValueError):
+                    continue
+
+                if cat_id not in cat_id_to_class_id:
+                    continue
+
+                segmentation = ann.get("segmentation")
+                if not segmentation:
+                    continue
+                if isinstance(segmentation, dict):
+                    skipped_rle += 1
+                    continue
+
+                for poly in segmentation:
+                    if not isinstance(poly, list) or len(poly) < 6:
+                        continue
+                    coords: List[str] = []
+                    for idx in range(0, len(poly), 2):
+                        x = float(poly[idx]) / width
+                        y = float(poly[idx + 1]) / height
+                        x = max(0.0, min(1.0, x))
+                        y = max(0.0, min(1.0, y))
+                        coords.append(f"{x:.6f} {y:.6f}")
+
+                    class_id = cat_id_to_class_id[cat_id]
+                    yolo_lines.append(f"{class_id} " + " ".join(coords))
+                    num_polygons += 1
+
+            label_path = labels_dir / (image_path.stem + ".txt")
+            label_path.write_text(
+                "\n".join(yolo_lines) + ("\n" if yolo_lines else ""),
+                encoding="utf-8",
+            )
+
+            if yolo_lines:
+                num_images_with_labels += 1
+
+        print(
+            f"[prepare] Finished split '{split}': {num_images_with_labels} images with labels, "
+            f"{num_polygons} polygons."
+        )
+        if skipped_rle:
+            print(f"[prepare] Skipped {skipped_rle} RLE segmentations.")
+
+    _process_split("train", annotations_dir / "train_coco.json")
+    _process_split("val", annotations_dir / "val_coco.json")
+    _process_split("test", annotations_dir / "test_coco.json")
 
 
 def _redistribute_tiles(
@@ -526,13 +679,23 @@ def _count_split_images(data_root: Path) -> Dict[str, int]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Tree canopy WMTS ingestion.")
-    parser.add_argument("step", choices=["ingest"], help="Pipeline step to run")
-    parser.add_argument("--run-id", required=True, help="Identifier for this ingest run")
-    parser.add_argument("--aoi", required=True, help="AOI GeoJSON path (relative to tree_canopy/aois or absolute)")
+    parser.add_argument(
+        "step", choices=["ingest", "prepare"], help="Pipeline step to run"
+    )
+    parser.add_argument(
+        "--run-id", required=False, help="Identifier for this ingest run"
+    )
+    parser.add_argument(
+        "--aoi",
+        required=False,
+        help="AOI GeoJSON path (relative to tree_canopy/aois or absolute)",
+    )
 
     args = parser.parse_args()
     if args.step == "ingest":
         ingest_data(run_id=args.run_id, aoi_path=args.aoi)
+    elif args.step == "prepare":
+        prepare_yolo_segmentation(run_id=args.run_id)
 
 
 if __name__ == "__main__":
