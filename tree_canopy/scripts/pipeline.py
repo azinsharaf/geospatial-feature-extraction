@@ -304,7 +304,6 @@ def ingest_data(run_id: Optional[str], aoi_path: Optional[str]) -> None:
         img_ext = _format_extension(wmts_cfg.get("format", "image/png"))
         total = 0
         downloaded = 0
-        downloaded_by_split = {"train": 0, "val": 0, "test": 0}
         processed = 0
         last_downloaded: Optional[str] = None
         seen_image_ids: Set[str] = set()
@@ -374,8 +373,6 @@ def ingest_data(run_id: Optional[str], aoi_path: Optional[str]) -> None:
 
                         img_path.write_bytes(resp.content)
                         downloaded += 1
-                        if split in downloaded_by_split:
-                            downloaded_by_split[split] += 1
                         last_downloaded = image_id
                     processed += 1
                     if processed % 100 == 0:
@@ -411,11 +408,12 @@ def ingest_data(run_id: Optional[str], aoi_path: Optional[str]) -> None:
     if skipped_duplicates:
         print(f"[ingest] Skipped {skipped_duplicates} duplicate tiles.")
 
+    split_counts = _count_split_images(data_root)
     print(
-        "[ingest] Downloads by split: "
-        f"train={downloaded_by_split['train']}, "
-        f"val={downloaded_by_split['val']}, "
-        f"test={downloaded_by_split['test']}."
+        "[ingest] Tiles by split: "
+        f"train={split_counts['train']}, "
+        f"val={split_counts['val']}, "
+        f"test={split_counts['test']}."
     )
 
     _check_duplicate_tiles(data_root)
@@ -514,6 +512,16 @@ def _check_duplicate_tiles(data_root: Path) -> None:
     for paths in duplicates:
         rel_paths = [p.relative_to(_tree_dir()).as_posix() for p in paths]
         print("  " + ", ".join(rel_paths))
+
+
+def _count_split_images(data_root: Path) -> Dict[str, int]:
+    counts: Dict[str, int] = {"train": 0, "val": 0, "test": 0}
+    for split in counts:
+        image_dir = data_root / split / "images"
+        if not image_dir.exists():
+            continue
+        counts[split] = len(list(image_dir.glob("*.png")))
+    return counts
 
 
 def main() -> None:
